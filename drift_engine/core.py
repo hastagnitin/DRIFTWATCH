@@ -34,3 +34,32 @@ def send_email_alert(message):
             print("Gmail alert sent successfully!")
     except Exception as e:
         print(f"Error sending email: {e}")
+
+def check_drift():
+    print("DriftWatch Engine Started")
+    print("--------------------------------------------------")
+    print(f"Expected State: Instance ID -> {INSTANCE_ID}, Type -> {EXPECTED_TYPE}")
+    print("Fetching actual details from AWS...")
+    
+    try:
+        ec2 = boto3.client('ec2')
+        response = ec2.describe_instances(InstanceIds=[INSTANCE_ID])
+        current_type = response['Reservations'][0]['Instances'][0]['InstanceType']
+        
+        print(f"Actual State: Type -> {current_type}")
+        print("--------------------------------------------------")
+        
+        if current_type != EXPECTED_TYPE:
+            print("DRIFT DETECTED: Manual change identified.")
+            print(f"Expected Type: {EXPECTED_TYPE}")
+            print(f"Actual Type:   {current_type}")
+            print("--------------------------------------------------")
+            
+            alert_message = f"Instance type drifted! Expected {EXPECTED_TYPE}, got {current_type}."
+            send_slack_alert(alert_message)
+            send_email_alert(alert_message)
+    except Exception as e:
+        print(f"AWS Data Fetch Error: {e}")
+
+if __name__ == "__main__":
+    check_drift()
