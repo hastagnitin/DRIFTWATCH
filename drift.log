@@ -1,0 +1,304 @@
+/root/driftwatch/venv/bin/python: can't open file '/root/driftwatch/core.py': [Errno 2] No such file or directory
+DriftWatch Engine Started
+------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.micro
+------------------------------
+No drift detected. Infrastructure is in sync.
+------------------------------
+DriftWatch Engine Started
+------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.small
+------------------------------
+DRIFT DETECTED: Manual change identified.
+Expected Type: t3.micro
+Actual Type:   t3.small
+------------------------------
+DriftWatch Engine Started
+------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.small
+------------------------------
+DRIFT DETECTED: Manual change identified.
+Expected Type: t3.micro
+Actual Type:   t3.small
+------------------------------
+DriftWatch Engine Started
+------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.small
+------------------------------
+DRIFT DETECTED: Manual change identified.
+Expected Type: t3.micro
+Actual Type:   t3.small
+------------------------------
+DriftWatch Engine Started
+------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.micro
+------------------------------
+No drift detected. Infrastructure is in sync.
+------------------------------
+DriftWatch Engine Started
+------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.micro
+------------------------------
+No drift detected. Infrastructure is in sync.
+------------------------------
+DriftWatch Engine Started
+------------------------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Error: You must specify a region.
+DriftWatch Engine Started
+------------------------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.small
+------------------------------------------------
+DRIFT DETECTED: Manual change identified.
+Expected Type: t3.micro
+Actual Type:   t3.small
+------------------------------------------------
+DriftWatch Engine Started
+------------------------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.small
+------------------------------------------------
+DRIFT DETECTED: Manual change identified.
+Expected Type: t3.micro
+Actual Type:   t3.small
+------------------------------------------------
+DriftWatch Engine Started
+------------------------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.small
+------------------------------------------------
+DRIFT DETECTED: Manual change identified.
+Expected Type: t3.micro
+Actual Type:   t3.small
+------------------------------------------------
+Error: Invalid URL 'SLACK_WEBHOOK_URL': No scheme supplied. Perhaps you meant https://SLACK_WEBHOOK_URL?
+Traceback (most recent call last):
+  File "/root/driftwatch/drift_engine/core.py", line 41, in check_drift
+    send_slack_alert(alert_msg)
+  File "/root/driftwatch/drift_engine/core.py", line 11, in send_slack_alert
+    requests.post(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 134, in post
+    return request("post", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 71, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 635, in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 541, in prepare_request
+    p.prepare(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 439, in prepare
+    self.prepare_url(url, params)
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 514, in prepare_url
+    raise MissingSchema(
+requests.exceptions.MissingSchema: Invalid URL 'SLACK_WEBHOOK_URL': No scheme supplied. Perhaps you meant https://SLACK_WEBHOOK_URL?
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/root/driftwatch/drift_engine/core.py", line 48, in <module>
+    check_drift()
+  File "/root/driftwatch/drift_engine/core.py", line 45, in check_drift
+    send_slack_alert(f"AWS Check Failed: {str(e)}")
+  File "/root/driftwatch/drift_engine/core.py", line 11, in send_slack_alert
+    requests.post(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 134, in post
+    return request("post", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 71, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 635, in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 541, in prepare_request
+    p.prepare(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 439, in prepare
+    self.prepare_url(url, params)
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 514, in prepare_url
+    raise MissingSchema(
+requests.exceptions.MissingSchema: Invalid URL 'SLACK_WEBHOOK_URL': No scheme supplied. Perhaps you meant https://SLACK_WEBHOOK_URL?
+DriftWatch Engine Started
+------------------------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.small
+------------------------------------------------
+DRIFT DETECTED: Manual change identified.
+Expected Type: t3.micro
+Actual Type:   t3.small
+------------------------------------------------
+Error: Invalid URL 'SLACK_WEBHOOK_URL': No scheme supplied. Perhaps you meant https://SLACK_WEBHOOK_URL?
+Traceback (most recent call last):
+  File "/root/driftwatch/drift_engine/core.py", line 41, in check_drift
+    send_slack_alert(alert_msg)
+  File "/root/driftwatch/drift_engine/core.py", line 11, in send_slack_alert
+    requests.post(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 134, in post
+    return request("post", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 71, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 635, in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 541, in prepare_request
+    p.prepare(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 439, in prepare
+    self.prepare_url(url, params)
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 514, in prepare_url
+    raise MissingSchema(
+requests.exceptions.MissingSchema: Invalid URL 'SLACK_WEBHOOK_URL': No scheme supplied. Perhaps you meant https://SLACK_WEBHOOK_URL?
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/root/driftwatch/drift_engine/core.py", line 48, in <module>
+    check_drift()
+  File "/root/driftwatch/drift_engine/core.py", line 45, in check_drift
+    send_slack_alert(f"AWS Check Failed: {str(e)}")
+  File "/root/driftwatch/drift_engine/core.py", line 11, in send_slack_alert
+    requests.post(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 134, in post
+    return request("post", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 71, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 635, in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 541, in prepare_request
+    p.prepare(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 439, in prepare
+    self.prepare_url(url, params)
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 514, in prepare_url
+    raise MissingSchema(
+requests.exceptions.MissingSchema: Invalid URL 'SLACK_WEBHOOK_URL': No scheme supplied. Perhaps you meant https://SLACK_WEBHOOK_URL?
+DriftWatch Engine Started
+------------------------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.small
+------------------------------------------------
+DRIFT DETECTED: Manual change identified.
+Expected Type: t3.micro
+Actual Type:   t3.small
+------------------------------------------------
+Error: Invalid URL 'SLACK_WEBHOOK_URL': No scheme supplied. Perhaps you meant https://SLACK_WEBHOOK_URL?
+Traceback (most recent call last):
+  File "/root/driftwatch/drift_engine/core.py", line 41, in check_drift
+    send_slack_alert(alert_msg)
+  File "/root/driftwatch/drift_engine/core.py", line 11, in send_slack_alert
+    requests.post(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 134, in post
+    return request("post", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 71, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 635, in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 541, in prepare_request
+    p.prepare(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 439, in prepare
+    self.prepare_url(url, params)
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 514, in prepare_url
+    raise MissingSchema(
+requests.exceptions.MissingSchema: Invalid URL 'SLACK_WEBHOOK_URL': No scheme supplied. Perhaps you meant https://SLACK_WEBHOOK_URL?
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/root/driftwatch/drift_engine/core.py", line 48, in <module>
+    check_drift()
+  File "/root/driftwatch/drift_engine/core.py", line 45, in check_drift
+    send_slack_alert(f"AWS Check Failed: {str(e)}")
+  File "/root/driftwatch/drift_engine/core.py", line 11, in send_slack_alert
+    requests.post(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 134, in post
+    return request("post", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/api.py", line 71, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 635, in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/sessions.py", line 541, in prepare_request
+    p.prepare(
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 439, in prepare
+    self.prepare_url(url, params)
+  File "/root/driftwatch/venv/lib64/python3.12/site-packages/requests/models.py", line 514, in prepare_url
+    raise MissingSchema(
+requests.exceptions.MissingSchema: Invalid URL 'SLACK_WEBHOOK_URL': No scheme supplied. Perhaps you meant https://SLACK_WEBHOOK_URL?
+DriftWatch Engine Started
+------------------------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.small
+------------------------------------------------
+DRIFT DETECTED: Manual change identified.
+Expected Type: t3.micro
+Actual Type:   t3.small
+------------------------------------------------
+Error: name 'WEBHOOK_URL' is not defined
+Traceback (most recent call last):
+  File "/root/driftwatch/drift_engine/core.py", line 41, in check_drift
+    send_slack_alert(alert_msg)
+  File "/root/driftwatch/drift_engine/core.py", line 12, in send_slack_alert
+    WEBHOOK_URL, 
+    ^^^^^^^^^^^
+NameError: name 'WEBHOOK_URL' is not defined
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/root/driftwatch/drift_engine/core.py", line 48, in <module>
+    check_drift()
+  File "/root/driftwatch/drift_engine/core.py", line 45, in check_drift
+    send_slack_alert(f"AWS Check Failed: {str(e)}")
+  File "/root/driftwatch/drift_engine/core.py", line 12, in send_slack_alert
+    WEBHOOK_URL, 
+    ^^^^^^^^^^^
+NameError: name 'WEBHOOK_URL' is not defined
+DriftWatch Engine Started
+------------------------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.small
+------------------------------------------------
+DRIFT DETECTED: Manual change identified.
+Expected Type: t3.micro
+Actual Type:   t3.small
+------------------------------------------------
+DriftWatch Engine Started
+------------------------------------------------
+Expected State: Instance ID -> i-057f05151b227214d, Type -> t3.micro
+Fetching actual details from AWS...
+Actual State: Type -> t3.small
+------------------------------------------------
+DRIFT DETECTED: Manual change identified.
+Expected Type: t3.micro
+Actual Type:   t3.small
+------------------------------------------------
