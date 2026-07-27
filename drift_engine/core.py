@@ -1,13 +1,35 @@
 import boto3
-import os
-import requests
-import smtplib
 import json
-from email.mime.text import MIMEText
+import os
+from dataclasses import dataclass, field
+from enum import Enum
 
-def load_terraform_state(state_path: str):
+class DriftType(Enum):
+    MISSING = "MISSING"
+    MODIFIED = "MODIFIED"
+    UNMANAGED = "UNMANAGED"
+
+@dataclass
+class DriftResult:
+    resource_type: str
+    resource_id: str
+    drift_type: DriftType
+    tf_attributes: dict = field(default_factory=dict)
+    live_attributes: dict = field(default_factory=dict)
+    diff: dict = field(default_factory=dict)
+
+IGNORED_ATTRIBUTES = {
+    "aws_instance": {
+        "private_ip", "public_ip", "network_interface_id",
+        "instance_state", "private_dns", "public_dns",
+    },
+    "aws_security_group": {"owner_id"},
+}
+
+def load_terraform_state(state_path: str) -> dict:
     with open(state_path) as f:
         state = json.load(f)
+    
     resources = {}
     for resource in state.get("resources", []):
         r_type = resource["type"]
@@ -18,39 +40,85 @@ def load_terraform_state(state_path: str):
                 resources[resource_id] = {"type": r_type, "attributes": attrs}
     return resources
 
-def send_slack_alert(message):
-    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
-    if not webhook_url:
-        print("Slack Webhook URL is not set!")
-        return
-    payload = {"text": message}
-    try:
-        response = requests.post(webhook_url, json=payload)
-        if response.status_code == 200:
-            print("Slack alert sent successfully!")
-        else:
-            print(f"Failed to send Slack alert. Status code: {response.status_code}")
-    except Exception as e:
-        print(f"Slack Notification Error: {e}")
+def fetch_live_ec2_instances(region: str) -> dict:
+    ec2 = boto3.client("ec2", region_name=region)
+    live = {}
+    paginator = ec2.get_paginator("describe_instances")
+    
+    for page in paginator.paginate():
+        for reservation in page["Reservations"]:
+            for instance in reservation["Instances"]:
+                if instance["State"]["Name"] == "terminated":
+                    continue
+                
+                live[instance["InstanceId"]] = {
+                    "type": "aws_instance",
+                    "attributes": {
+                        "id": instance["InstanceId"],
+                        "instance_type": instance["InstanceType"],
+                        "ami": instance["ImageId"],
+                    },
+                }
+    return live
 
-def send_gmail_alert(subject, body):
-    gmail_user = os.environ.get("GMAIL_USER")
-    gmail_pass = os.environ.get("GMAIL_PASS")
-    if not gmail_user or not gmail_pass:
-        print("Gmail credentials are not set! Skipping email.")
-        return
-    msg = MIMEText(body)
-    msg['Subject'] = subject
-    msg['From'] = gmail_user
-    msg['To'] = gmail_user
-    try:
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-        server.login(gmail_user, gmail_pass)
-        server.send_message(msg)
-        server.quit()
-        print("Gmail alert sent successfully!")
-    except Exception as e:
-        print(f"Failed to send email: {e}")
+def compare_attributes(tf_attrs: dict, live_attrs: dict, r_type: str) -> dict:
+    ignored = IGNORED_ATTRIBUTES.get(r_type, set())
+    diff = {}
+    
+    for key in set(tf_attrs) | set(live_attrs):
+        if key in ignored:
+            continue
+            
+        tf_val = tf_attrs.get(key)
+        live_val = live_attrs.get(key)
+        
+        if tf_val != live_val and key in live_attrs:
+            diff[key] = {"terraform": tf_val, "live": live_val}
+            
+    return diff
+
+def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
+    tf_resources = load_terraform_state(tf_state_path)
+    live_resources = fetch_live_ec2_instances(region)
+    
+    results = []
+    all_ids = set(tf_resources) | set(live_resources)
+    
+    for rid in all_ids:
+        in_tf = rid in tf_resources
+        in_live = rid in live_resources
+        
+        if in_tf and not in_live:
+            results.append(DriftResult(
+                resource_type=tf_resources[rid]["type"],
+                resource_id=rid,
+                drift_type=DriftType.MISSING,
+                tf_attributes=tf_resources[rid]["attributes"]
+            ))
+        elif in_live and not in_tf:
+            results.append(DriftResult(
+                resource_type=live_resources[rid]["type"],
+                resource_id=rid,
+                drift_type=DriftType.UNMANAGED,
+                live_attributes=live_resources[rid]["attributes"]
+            ))
+        else:
+            diff = compare_attributes(
+                tf_resources[rid]["attributes"],
+                live_resources[rid]["attributes"],
+                tf_resources[rid]["type"]
+            )
+            if diff:
+                results.append(DriftResult(
+                    resource_type=tf_resources[rid]["type"],
+                    resource_id=rid,
+                    drift_type=DriftType.MODIFIED,
+                    tf_attributes=tf_resources[rid]["attributes"],
+                    live_attributes=live_resources[rid]["attributes"],
+                    diff=diff
+                ))
+                
+    return results
 
 def main():
     print("--------------------------------------------------")
@@ -58,55 +126,22 @@ def main():
     print("--------------------------------------------------")
     
     tf_state_path = "/root/driftwatch/terraform/terraform.tfstate"
+    region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
     
     try:
-        tf_resources = load_terraform_state(tf_state_path)
-    except FileNotFoundError:
-        print(f"Error: Terraform state file not found at {tf_state_path}")
-        return
-    except Exception as e:
-        print(f"Error loading state file: {e}")
-        return
-
-    ec2_instances_in_tf = {k: v for k, v in tf_resources.items() if v['type'] == 'aws_instance'}
-
-    if not ec2_instances_in_tf:
-        print("No EC2 instances found in Terraform state.")
-        return
-
-    try:
-        region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
-        ec2_client = boto3.client('ec2', region_name=region)
-    except Exception as e:
-        print(f"AWS Client Initialization Error: {e}")
-        return
-
-    for instance_id, data in ec2_instances_in_tf.items():
-        expected_type = data['attributes'].get('instance_type')
-        print(f"Expected State (From TF): Instance ID -> {instance_id}, Type -> {expected_type}")
-        print("Fetching actual details from AWS...")
+        results = detect_drift(tf_state_path, region)
         
-        try:
-            response = ec2_client.describe_instances(InstanceIds=[instance_id])
-            actual_type = response['Reservations'][0]['Instances'][0]['InstanceType']
-            print(f"Actual State (From AWS): Type -> {actual_type}")
-            print("--------------------------------------------------")
-
-            if expected_type != actual_type:
-                alert_msg = (
-                    f"⚠️ *DRIFT DETECTED: Manual change identified!*\n"
-                    f"Resource: EC2 Instance (`{instance_id}`)\n"
-                    f"Expected Type (Terraform): `{expected_type}`\n"
-                    f"Actual Type (AWS Live): `{actual_type}`"
-                )
-                print(alert_msg)
-                send_slack_alert(alert_msg)
-                send_gmail_alert("DriftWatch Alert: EC2 Drift Detected", alert_msg)
-            else:
-                print(f"✅ No drift detected for {instance_id}. Infrastructure matches IaC.")
-
-        except Exception as e:
-            print(f"AWS Data Fetch Error for {instance_id}: {e}")
+        if not results:
+            print("No drift detected. Infrastructure matches IaC.")
+        else:
+            for r in results:
+                print(f"[{r.drift_type.value}] {r.resource_type}: {r.resource_id}")
+                if r.diff:
+                    for attr, vals in r.diff.items():
+                        print(f"  - {attr}: Expected '{vals['terraform']}', Found '{vals['live']}'")
+                        
+    except Exception as e:
+        print(f"Error during execution: {e}")
 
 if __name__ == "__main__":
     main()
