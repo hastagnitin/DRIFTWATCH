@@ -23,9 +23,14 @@ IGNORED_ATTRIBUTES = {
     "aws_instance": {
         "private_ip", "public_ip", "network_interface_id",
         "instance_state", "private_dns", "public_dns",
-        "tags", "tags_all"
+        "tags_all"
     },
     "aws_security_group": {"owner_id"},
+    "aws_s3_bucket": {
+        "arn", "bucket_domain_name", "bucket_regional_domain_name",
+        "hosted_zone_id", "region", "request_payer",
+        "tags_all"
+    }
 }
 
 def load_terraform_state(state_path: str) -> dict:
@@ -72,8 +77,41 @@ def fetch_live_ec2_instances(region: str) -> dict:
                         "id": instance["InstanceId"],
                         "instance_type": instance["InstanceType"],
                         "ami": instance["ImageId"],
+                        "tags": tags_dict,
                     },
                 }
+    return live
+
+def fetch_live_s3_buckets(region: str) -> dict:
+    s3 = boto3.client("s3", region_name=region)
+    live = {}
+    
+    try:
+        response = s3.list_buckets()
+        for bucket in response.get("Buckets", []):
+            bucket_name = bucket["Name"]
+            
+            try:
+                tags_response = s3.get_bucket_tagging(Bucket=bucket_name)
+                tags_list = tags_response.get("TagSet", [])
+                tags_dict = {t["Key"]: t["Value"] for t in tags_list}
+                name = tags_dict.get("Name", bucket_name)
+            except Exception:
+                tags_dict = {}
+                name = bucket_name
+
+            live[bucket_name] = {
+                "type": "aws_s3_bucket",
+                "name": name,
+                "attributes": {
+                    "id": bucket_name,
+                    "bucket": bucket_name,
+                    "tags": tags_dict,
+                },
+            }
+    except Exception as e:
+        print(f"Error fetching S3 buckets: {e}")
+        
     return live
 
 def compare_attributes(tf_attrs: dict, live_attrs: dict, r_type: str) -> dict:
@@ -94,7 +132,11 @@ def compare_attributes(tf_attrs: dict, live_attrs: dict, r_type: str) -> dict:
 
 def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
     tf_resources = load_terraform_state(tf_state_path)
-    live_resources = fetch_live_ec2_instances(region)
+    
+    live_ec2 = fetch_live_ec2_instances(region)
+    live_s3 = fetch_live_s3_buckets(region)
+    
+    live_resources = {**live_ec2, **live_s3}
     
     results = []
     all_ids = set(tf_resources) | set(live_resources)
