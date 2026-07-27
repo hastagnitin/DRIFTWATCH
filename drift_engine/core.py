@@ -14,6 +14,7 @@ class DriftResult:
     resource_type: str
     resource_id: str
     drift_type: DriftType
+    resource_name: str
     tf_attributes: dict = field(default_factory=dict)
     live_attributes: dict = field(default_factory=dict)
     diff: dict = field(default_factory=dict)
@@ -22,6 +23,7 @@ IGNORED_ATTRIBUTES = {
     "aws_instance": {
         "private_ip", "public_ip", "network_interface_id",
         "instance_state", "private_dns", "public_dns",
+        "tags", "tags_all"
     },
     "aws_security_group": {"owner_id"},
 }
@@ -36,8 +38,16 @@ def load_terraform_state(state_path: str) -> dict:
         for instance in resource.get("instances", []):
             attrs = instance.get("attributes", {})
             resource_id = attrs.get("id")
+            
+            tags = attrs.get("tags", {})
+            name = tags.get("Name") if tags else "Unknown"
+            
             if resource_id:
-                resources[resource_id] = {"type": r_type, "attributes": attrs}
+                resources[resource_id] = {
+                    "type": r_type, 
+                    "name": name, 
+                    "attributes": attrs
+                }
     return resources
 
 def fetch_live_ec2_instances(region: str) -> dict:
@@ -51,8 +61,13 @@ def fetch_live_ec2_instances(region: str) -> dict:
                 if instance["State"]["Name"] == "terminated":
                     continue
                 
+                tags_list = instance.get("Tags", [])
+                tags_dict = {t["Key"]: t["Value"] for t in tags_list}
+                name = tags_dict.get("Name", "Unknown")
+                
                 live[instance["InstanceId"]] = {
                     "type": "aws_instance",
+                    "name": name,
                     "attributes": {
                         "id": instance["InstanceId"],
                         "instance_type": instance["InstanceType"],
@@ -88,11 +103,18 @@ def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
         in_tf = rid in tf_resources
         in_live = rid in live_resources
         
+        res_name = "Unknown"
+        if in_tf:
+            res_name = tf_resources[rid]["name"]
+        elif in_live:
+            res_name = live_resources[rid]["name"]
+            
         if in_tf and not in_live:
             results.append(DriftResult(
                 resource_type=tf_resources[rid]["type"],
                 resource_id=rid,
                 drift_type=DriftType.MISSING,
+                resource_name=res_name,
                 tf_attributes=tf_resources[rid]["attributes"]
             ))
         elif in_live and not in_tf:
@@ -100,6 +122,7 @@ def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
                 resource_type=live_resources[rid]["type"],
                 resource_id=rid,
                 drift_type=DriftType.UNMANAGED,
+                resource_name=res_name,
                 live_attributes=live_resources[rid]["attributes"]
             ))
         else:
@@ -113,6 +136,7 @@ def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
                     resource_type=tf_resources[rid]["type"],
                     resource_id=rid,
                     drift_type=DriftType.MODIFIED,
+                    resource_name=res_name,
                     tf_attributes=tf_resources[rid]["attributes"],
                     live_attributes=live_resources[rid]["attributes"],
                     diff=diff
@@ -132,13 +156,13 @@ def main():
         results = detect_drift(tf_state_path, region)
         
         if not results:
-            print("No drift detected. Infrastructure matches IaC.")
+            print("✅ No drift detected. Infrastructure matches IaC.")
         else:
             for r in results:
-                print(f"[{r.drift_type.value}] {r.resource_type}: {r.resource_id}")
+                print(f"[{r.drift_type.value}] {r.resource_type}: {r.resource_name} ({r.resource_id})")
                 if r.diff:
                     for attr, vals in r.diff.items():
-                        print(f"  - {attr}: Expected '{vals['terraform']}', Found '{vals['live']}'")
+                        print(f"  ⚠️ {attr}: Expected '{vals['terraform']}', Found '{vals['live']}'")
                         
     except Exception as e:
         print(f"Error during execution: {e}")
