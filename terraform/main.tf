@@ -11,3 +11,12 @@ resource "aws_instance" "web_servers" {
     Name = "DriftWatch-Test-${count.index + 1}"
   }
 }
+
+resource "aws_s3_bucket" "drift_test_bucket" {
+  bucket = "driftwatch-test-bucket-27072026-xyz"
+
+  tags = {
+     Name        = "DriftWatch-S3-Test"
+     Environment = "Dev"
+  }
+}
