@@ -114,6 +114,36 @@ def fetch_live_s3_buckets(region: str) -> dict:
         
     return live
 
+def fetch_live_security_groups(region: str) -> dict:
+    ec2 = boto3.client("ec2", region_name=region)
+    live = {}
+    paginator = ec2.get_paginator("describe_security_groups")
+    
+    try:
+        for page in paginator.paginate():
+            for sg in page["SecurityGroups"]:
+                sg_id = sg["GroupId"]
+                sg_name = sg["GroupName"]
+                
+                tags_list = sg.get("Tags", [])
+                tags_dict = {t["Key"]: t["Value"] for t in tags_list}
+                name_tag = tags_dict.get("Name", sg_name)
+                
+                live[sg_id] = {
+                    "type": "aws_security_group",
+                    "name": name_tag,
+                    "attributes": {
+                        "id": sg_id,
+                        "name": sg_name,
+                        "description": sg.get("Description", ""),
+                        "tags": tags_dict,
+                    },
+                }
+    except Exception as e:
+        print(f"Error fetching Security Groups: {e}")
+        
+    return live
+
 def compare_attributes(tf_attrs: dict, live_attrs: dict, r_type: str) -> dict:
     ignored = IGNORED_ATTRIBUTES.get(r_type, set())
     diff = {}
@@ -135,8 +165,9 @@ def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
     
     live_ec2 = fetch_live_ec2_instances(region)
     live_s3 = fetch_live_s3_buckets(region)
+    live_sg = fetch_live_security_groups(region)
     
-    live_resources = {**live_ec2, **live_s3}
+    live_resources = {**live_ec2, **live_s3, **live_sg}
     
     results = []
     all_ids = set(tf_resources) | set(live_resources)
