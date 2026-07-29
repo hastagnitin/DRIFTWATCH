@@ -1,3 +1,4 @@
+from remediation import process_remediation
 import boto3
 import json
 import os
@@ -440,6 +441,7 @@ def main():
                         print(f"  ⚠️ {attr}: Expected '{vals['terraform']}', Found '{vals['live']}'")
             
             process_alerts(results)
+            process_remediation(results)
                         
     except Exception as e:
         print(f"Error during execution: {e}")
