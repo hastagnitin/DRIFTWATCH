@@ -239,6 +239,59 @@ def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
                 
     return results
 
+def fetch_live_rds_instances(region: str = "ap-south-1") -> dict:
+    rds = boto3.client("rds", region_name=region)
+    live = {}
+    paginator = rds.get_paginator("describe_db_instances")
+    
+    try:
+        for page in paginator.paginate():
+            for db in page["DBInstances"]:
+                db_id = db["DBInstanceIdentifier"]
+                
+                live[db_id] = {
+                    "type": "aws_db_instance",
+                    "attributes": {
+                        "id": db_id,
+                        "allocated_storage": db.get("AllocatedStorage"),
+                        "engine": db.get("Engine"),
+                        "engine_version": db.get("EngineVersion"),
+                        "instance_class": db.get("DBInstanceClass"),
+                        "multi_az": db.get("MultiAZ"),
+                    },
+                }
+    except Exception as e:
+        print(f"Error fetching RDS instances: {e}")
+        
+    return live
+
+def fetch_live_lambda_functions(region: str = "ap-south-1") -> dict:
+    lambda_client = boto3.client("lambda", region_name=region)
+    live = {}
+    paginator = lambda_client.get_paginator("list_functions")
+    
+    try:
+        for page in paginator.paginate():
+            for func in page["Functions"]:
+                func_name = func["FunctionName"]
+                
+                live[func_name] = {
+                    "type": "aws_lambda_function",
+                    "attributes": {
+                        "id": func_name,
+                        "function_name": func_name,
+                        "runtime": func.get("Runtime"),
+                        "handler": func.get("Handler"),
+                        "memory_size": func.get("MemorySize"),
+                        "timeout": func.get("Timeout"),
+                        "role": func.get("Role"),
+                    },
+                }
+    except Exception as e:
+        print(f"Error fetching Lambda functions: {e}")
+        
+    return live
+
 def main():
     print("--------------------------------------------------")
     print("DriftWatch Engine Started")
