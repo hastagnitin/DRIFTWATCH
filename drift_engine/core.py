@@ -25,11 +25,16 @@ IGNORED_ATTRIBUTES = {
         "instance_state", "private_dns", "public_dns",
         "tags_all"
     },
-    "aws_security_group": {"owner_id"},
+    "aws_security_group": {
+        "owner_id", "ingress", "egress"
+    },
     "aws_s3_bucket": {
         "arn", "bucket_domain_name", "bucket_regional_domain_name",
         "hosted_zone_id", "region", "request_payer",
         "tags_all"
+    },
+    "aws_db_instance": {
+        "engine_version"
     }
 }
 
@@ -187,11 +192,15 @@ def fetch_live_rds_instances(region: str = "ap-south-1") -> dict:
     try:
         for page in paginator.paginate():
             for db in page["DBInstances"]:
-                db_id = db["DBInstanceIdentifier"]
+                db_id = db.get("DbiResourceId") 
+                db_name = db["DBInstanceIdentifier"]
+                
+                if not db_id:
+                    continue
                 
                 live[db_id] = {
                     "type": "aws_db_instance",
-                    "name": db_id,
+                    "name": db_name,
                     "attributes": {
                         "id": db_id,
                         "allocated_storage": db.get("AllocatedStorage"),
@@ -242,6 +251,10 @@ def fetch_live_iam_roles(region: str = "ap-south-1") -> dict:
         for page in paginator.paginate():
             for role in page["Roles"]:
                 role_name = role["RoleName"]
+                
+                if role_name.startswith("AWSServiceRoleFor") or role.get("Path", "").startswith("/aws-service-role/"):
+                    continue
+                    
                 live[role_name] = {
                     "type": "aws_iam_role",
                     "name": role_name,
