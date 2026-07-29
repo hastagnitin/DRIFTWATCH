@@ -27,3 +27,13 @@ def test_security_group_changes_are_detected():
     assert "description" in diff
     assert diff["description"]["terraform"] == "Managed by TF"
     assert diff["description"]["live"] == "Manual edit in AWS"
+
+def test_iam_role_changes_are_detected():
+    tf_attrs = {"id": "MyRole", "path": "/"}
+    live_attrs = {"id": "MyRole", "path": "/service-role/"}
+    
+    diff = compare_attributes(tf_attrs, live_attrs, "aws_iam_role")
+    
+    assert "path" in diff
+    assert diff["path"]["terraform"] == "/"
+    assert diff["path"]["live"] == "/service-role/"
