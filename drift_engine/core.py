@@ -129,6 +129,26 @@ def fetch_live_security_groups(region: str) -> dict:
                 tags_dict = {t["Key"]: t["Value"] for t in tags_list}
                 name_tag = tags_dict.get("Name", sg_name)
                 
+                ingress_rules = []
+                for perm in sg.get("IpPermissions", []):
+                    for ip_range in perm.get("IpRanges", []):
+                        ingress_rules.append({
+                            "from_port": perm.get("FromPort", 0),
+                            "to_port": perm.get("ToPort", 0),
+                            "protocol": perm.get("IpProtocol", "-1"),
+                            "cidr_blocks": [ip_range.get("CidrIp")]
+                        })
+                
+                egress_rules = []
+                for perm in sg.get("IpPermissionsEgress", []):
+                    for ip_range in perm.get("IpRanges", []):
+                        egress_rules.append({
+                            "from_port": perm.get("FromPort", 0),
+                            "to_port": perm.get("ToPort", 0),
+                            "protocol": perm.get("IpProtocol", "-1"),
+                            "cidr_blocks": [ip_range.get("CidrIp")]
+                        })
+                
                 live[sg_id] = {
                     "type": "aws_security_group",
                     "name": name_tag,
@@ -137,6 +157,8 @@ def fetch_live_security_groups(region: str) -> dict:
                         "name": sg_name,
                         "description": sg.get("Description", ""),
                         "tags": tags_dict,
+                        "ingress": ingress_rules,
+                        "egress": egress_rules,
                     },
                 }
     except Exception as e:
