@@ -44,3 +44,47 @@ resource "aws_security_group" "drift_test_sg" {
     Environment = "Dev"
   }
 }
+
+resource "aws_db_instance" "driftwatch_rds" {
+  identifier           = "driftwatch-test-db"
+  allocated_storage    = 20
+  engine               = "mysql"
+  engine_version       = "8.0"
+  instance_class       = "db.t3.micro"
+  username             = "admin"
+  password             = "DriftWatchPass123"
+  skip_final_snapshot  = true
+  publicly_accessible  = false
+}
+
+resource "aws_iam_role" "lambda_exec_role" {
+  name = "driftwatch_lambda_role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "lambda.amazonaws.com"
+      }
+    }]
+  })
+}
+
+data "archive_file" "lambda_zip" {
+  type        = "zip"
+  output_path = "lambda_function.zip"
+  source {
+    content  = "def lambda_handler(event, context):\n    return 'Hello DriftWatch!'"
+    filename = "index.py"
+  }
+}
+
+resource "aws_lambda_function" "driftwatch_lambda" {
+  function_name    = "driftwatch-test-function"
+  role             = aws_iam_role.lambda_exec_role.arn
+  handler          = "index.lambda_handler"
+  runtime          = "python3.9"
+  filename         = data.archive_file.lambda_zip.output_path
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+}
