@@ -22,16 +22,13 @@ def remediate_security_group(region: str, sg_id: str, diff_data: dict):
     live_ingress = diff_data.get("ingress", {}).get("live", [])
     
     print(f"Remediating Security Group {sg_id}...")
+    
     for live_rule in live_ingress:
         is_authorized = False
-        
-        
         for exp_rule in expected_ingress:
             if (live_rule.get('from_port') == exp_rule.get('from_port') and
                 live_rule.get('to_port') == exp_rule.get('to_port') and
                 live_rule.get('protocol') == exp_rule.get('protocol')):
-                
-                
                 is_authorized = True
                 break
                 
@@ -47,9 +44,35 @@ def remediate_security_group(region: str, sg_id: str, diff_data: dict):
                         'IpRanges': [{'CidrIp': cidr} for cidr in live_rule.get('cidr_blocks', []) if cidr]
                     }]
                 )
-                print(f"✅ [REMEDIATED] Successfully removed unauthorized Inbound Rule from {sg_id} (Port {live_rule.get('from_port')} to {live_rule.get('to_port')})")
+                print(f"✅ [REMEDIATED] Successfully removed unauthorized Inbound Rule from {sg_id} (Port {live_rule.get('from_port')})")
             except Exception as e:
                 print(f"❌ Failed to revoke rule in {sg_id}: {e}")
+
+    print(f"Checking for missing authorized rules in {sg_id}...")
+    for exp_rule in expected_ingress:
+        is_missing = True
+        for live_rule in live_ingress:
+            if (live_rule.get('from_port') == exp_rule.get('from_port') and
+                live_rule.get('to_port') == exp_rule.get('to_port') and
+                live_rule.get('protocol') == exp_rule.get('protocol')):
+                is_missing = False
+                break
+        
+        if is_missing:
+            print(f"Restoring missing IaC rule: Port {exp_rule.get('from_port')}")
+            try:
+                ec2.authorize_security_group_ingress(
+                    GroupId=sg_id,
+                    IpPermissions=[{
+                        'IpProtocol': exp_rule['protocol'],
+                        'FromPort': exp_rule['from_port'],
+                        'ToPort': exp_rule['to_port'],
+                        'IpRanges': [{'CidrIp': cidr} for cidr in exp_rule.get('cidr_blocks', []) if cidr]
+                    }]
+                )
+                print(f"✅ [REMEDIATED] Successfully restored missing IaC Inbound Rule to {sg_id} (Port {exp_rule.get('from_port')})")
+            except Exception as e:
+                print(f"❌ Failed to restore rule in {sg_id}: {e}")
                 
     print(f"Successfully completed remediation check for Security Group {sg_id}")
 
