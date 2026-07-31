@@ -14,7 +14,7 @@ def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: st
     )
     print(f"Restarting instance {instance_id}...")
     ec2.start_instances(InstanceIds=[instance_id])
-    print(f"Successfully remediated {instance_id} back to {expected_type}")
+    print(f"✅ [REMEDIATED] Successfully remediated {instance_id} back to {expected_type}")
 
 def remediate_security_group(region: str, sg_id: str, diff_data: dict):
     ec2 = boto3.client('ec2', region_name=region)
@@ -35,9 +35,11 @@ def remediate_security_group(region: str, sg_id: str, diff_data: dict):
                         'IpRanges': [{'CidrIp': cidr} for cidr in rule['cidr_blocks'] if cidr]
                     }]
                 )
+
+                print(f"✅ [REMEDIATED] Successfully removed unauthorized Inbound Rule from {sg_id} (Port {rule['from_port']} to {rule['to_port']})")
             except Exception as e:
-                print(f"Failed to revoke rule in {sg_id}: {e}")
-    print(f"Successfully remediated Security Group {sg_id}")
+                print(f"❌ Failed to revoke rule in {sg_id}: {e}")
+    print(f"Successfully completed remediation check for Security Group {sg_id}")
 
 def process_remediation(drift_results: list):
     region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
@@ -55,5 +57,5 @@ def process_remediation(drift_results: list):
                 print(f"Auto-remediation triggered for Security Group: {result.resource_id}")
                 try:
                     remediate_security_group(region, result.resource_id, result.diff)
-                except Exception as e:
+                except Exception as e:   
                     print(f"Remediation failed for {result.resource_id}: {e}")
