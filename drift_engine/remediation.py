@@ -22,23 +22,35 @@ def remediate_security_group(region: str, sg_id: str, diff_data: dict):
     live_ingress = diff_data.get("ingress", {}).get("live", [])
     
     print(f"Remediating Security Group {sg_id}...")
-    for rule in live_ingress:
-        if rule not in expected_ingress:
-            print(f"Revoking unauthorized rule: {rule}")
+    for live_rule in live_ingress:
+        is_authorized = False
+        
+        
+        for exp_rule in expected_ingress:
+            if (live_rule.get('from_port') == exp_rule.get('from_port') and
+                live_rule.get('to_port') == exp_rule.get('to_port') and
+                live_rule.get('protocol') == exp_rule.get('protocol')):
+                
+                
+                is_authorized = True
+                break
+                
+        if not is_authorized:
+            print(f"Revoking unauthorized rule: {live_rule}")
             try:
                 ec2.revoke_security_group_ingress(
                     GroupId=sg_id,
                     IpPermissions=[{
-                        'IpProtocol': rule['protocol'],
-                        'FromPort': rule['from_port'],
-                        'ToPort': rule['to_port'],
-                        'IpRanges': [{'CidrIp': cidr} for cidr in rule['cidr_blocks'] if cidr]
+                        'IpProtocol': live_rule['protocol'],
+                        'FromPort': live_rule['from_port'],
+                        'ToPort': live_rule['to_port'],
+                        'IpRanges': [{'CidrIp': cidr} for cidr in live_rule.get('cidr_blocks', []) if cidr]
                     }]
                 )
-
-                print(f"✅ [REMEDIATED] Successfully removed unauthorized Inbound Rule from {sg_id} (Port {rule['from_port']} to {rule['to_port']})")
+                print(f"✅ [REMEDIATED] Successfully removed unauthorized Inbound Rule from {sg_id} (Port {live_rule.get('from_port')} to {live_rule.get('to_port')})")
             except Exception as e:
                 print(f"❌ Failed to revoke rule in {sg_id}: {e}")
+                
     print(f"Successfully completed remediation check for Security Group {sg_id}")
 
 def process_remediation(drift_results: list):
