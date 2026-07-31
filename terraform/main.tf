@@ -88,3 +88,14 @@ resource "aws_lambda_function" "driftwatch_lambda" {
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 }
+resource "aws_security_group" "driftwatch_managed_test" {
+    name        = "driftwatch-managed-test-sg"
+    description = "Testing DriftWatch Auto Remediation"
+
+    ingress {
+        from_port   = 443
+        to_port     = 443
+        protocol    = "tcp"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+}
