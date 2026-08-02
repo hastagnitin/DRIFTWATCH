@@ -2,8 +2,12 @@ import boto3
 import os
 
 def confirm_action(action_desc: str) -> bool:
+    if os.environ.get("AUTO_APPROVE") == "true":
+        print(f"⚠️ WARNING: {action_desc}. Proceed? (y/n): Auto-approving...")
+        return True
+
     while True:
-        choice = input(f"⚠️  WARNING: {action_desc}. Proceed? (y/n): ").strip().lower()
+        choice = input(f"⚠️ WARNING: {action_desc}. Proceed? (y/n): ").strip().lower()
         if choice in ['y', 'yes']:
             return True
         elif choice in ['n', 'no']:
