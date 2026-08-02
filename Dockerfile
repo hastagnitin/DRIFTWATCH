@@ -5,10 +5,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY core.py .
-COPY remediation.py .
-COPY run.sh .
 
+COPY drift_engine/ drift_engine/
+
+COPY run.sh .
 RUN chmod +x run.sh
 
 CMD ["./run.sh"]
