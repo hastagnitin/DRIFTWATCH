@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: driftwatch-db
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: driftwatch
+    ports:
+      - "5432:5432"
+    volumes:
+      - driftwatch_db_data:/var/lib/postgresql/data
+
+  app:
+    build: .
+    container_name: driftwatch-app
+    depends_on:
+      - db
+    stdin_open: true
+    tty: true
+    environment:
+      - AWS_DEFAULT_REGION=ap-south-1
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=admin
+      - DB_PASSWORD=admin
+      - DB_NAME=driftwatch
+    volumes:
+      - ~/.aws:/root/.aws:ro
+      - ./terraform:/app/terraform:ro
+
+volumes:
+  driftwatch_db_data:
