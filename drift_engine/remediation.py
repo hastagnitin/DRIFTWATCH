@@ -1,21 +1,33 @@
 import boto3
 import os
 
-def confirm_action(action_desc: str) -> bool:
-    if os.environ.get("AUTO_APPROVE") == "true":
-        print(f"⚠️ WARNING: {action_desc}. Proceed? (y/n): Auto-approving...")
+def get_environment_tag(tags):
+    if not tags:
+        return 'unknown'
+    for tag in tags:
+        if isinstance(tag, dict) and tag.get('Key') == 'Environment':
+            return tag.get('Value').lower()
+    return 'unknown'
+
+def confirm_action(action_desc: str, env: str = 'unknown', is_disruptive: bool = False) -> bool:
+    if env in ['dev', 'staging']:
+        print(f"[*] [{env.upper()}] Auto-approving: {action_desc}")
         return True
 
+    print(f"[!] [{env.upper()}] Protection Active. Manual action required.")
+    if is_disruptive:
+        print("[!] WARNING: This is a disruptive action -> Downtime risk!")
+
     while True:
-        choice = input(f"⚠️ WARNING: {action_desc}. Proceed? (y/n): ").strip().lower()
+        choice = input(f"⚠️ {action_desc}. Proceed? (y/n): ").strip().lower()
         if choice in ['y', 'yes']:
             return True
         elif choice in ['n', 'no']:
             return False
         print("Invalid input. Please enter 'y' or 'n'.")
 
-def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: str):
-    if not confirm_action(f"Change EC2 {instance_id} instance type to {expected_type}"):
+def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: str, env: str):
+    if not confirm_action(f"Change EC2 {instance_id} instance type to {expected_type}", env, True):
         print(f"⏭️  Skipped remediation for EC2 {instance_id}")
         return
 
@@ -33,7 +45,7 @@ def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: st
     ec2.start_instances(InstanceIds=[instance_id])
     print(f"✅ [REMEDIATED] Successfully remediated {instance_id} back to {expected_type}")
 
-def remediate_security_group(region: str, sg_id: str, diff_data: dict):
+def remediate_security_group(region: str, sg_id: str, diff_data: dict, env: str):
     ec2 = boto3.client('ec2', region_name=region)
     expected_ingress = diff_data.get("ingress", {}).get("terraform", [])
     live_ingress = diff_data.get("ingress", {}).get("live", [])
@@ -49,7 +61,7 @@ def remediate_security_group(region: str, sg_id: str, diff_data: dict):
                 break
                 
         if not is_authorized:
-            if confirm_action(f"Revoke unauthorized rule (Port {live_rule.get('from_port')}) in {sg_id}"):
+            if confirm_action(f"Revoke unauthorized rule (Port {live_rule.get('from_port')}) in {sg_id}", env, False):
                 print(f"Revoking unauthorized rule: {live_rule}")
                 try:
                     ec2.revoke_security_group_ingress(
@@ -78,7 +90,7 @@ def remediate_security_group(region: str, sg_id: str, diff_data: dict):
                 break
         
         if is_missing:
-            if confirm_action(f"Restore missing IaC rule (Port {exp_rule.get('from_port')}) in {sg_id}"):
+            if confirm_action(f"Restore missing IaC rule (Port {exp_rule.get('from_port')}) in {sg_id}", env, False):
                 print(f"Restoring missing IaC rule: Port {exp_rule.get('from_port')}")
                 try:
                     ec2.authorize_security_group_ingress(
@@ -98,8 +110,8 @@ def remediate_security_group(region: str, sg_id: str, diff_data: dict):
                 
     print(f"Completed remediation check for Security Group {sg_id}")
 
-def remediate_s3_bucket(bucket_name: str):
-    if not confirm_action(f"Enforce strict Public Access Block on S3 Bucket '{bucket_name}'"):
+def remediate_s3_bucket(bucket_name: str, env: str):
+    if not confirm_action(f"Enforce strict Public Access Block on S3 Bucket '{bucket_name}'", env, False):
         print(f"⏭️  Skipped remediation for S3 bucket {bucket_name}")
         return
 
@@ -119,7 +131,7 @@ def remediate_s3_bucket(bucket_name: str):
     except Exception as e:
         print(f"❌ Failed to remediate S3 bucket {bucket_name}: {e}")
 
-def remediate_iam_role(role_name: str, diff_data: dict):
+def remediate_iam_role(role_name: str, diff_data: dict, env: str):
     iam = boto3.client('iam')
     expected_policies = diff_data.get("attached_policies", {}).get("terraform", [])
     live_policies = diff_data.get("attached_policies", {}).get("live", [])
@@ -127,7 +139,7 @@ def remediate_iam_role(role_name: str, diff_data: dict):
     print(f"Checking IAM Role {role_name} for unauthorized policies...")
     for live_policy in live_policies:
         if live_policy not in expected_policies:
-            if confirm_action(f"Detach unauthorized policy '{live_policy}' from Role '{role_name}'"):
+            if confirm_action(f"Detach unauthorized policy '{live_policy}' from Role '{role_name}'", env, False):
                 print(f"Detaching unauthorized policy: {live_policy}")
                 try:
                     iam.detach_role_policy(
@@ -143,32 +155,37 @@ def remediate_iam_role(role_name: str, diff_data: dict):
 def process_remediation(drift_results: list):
     region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
     for result in drift_results:
+        tags = getattr(result, 'tags', [])
+        if not tags and hasattr(result, 'live_state'):
+            tags = result.live_state.get('Tags', [])
+        env = get_environment_tag(tags)
+
         if result.drift_type.value == "MODIFIED":
             if result.resource_type == "aws_instance" and "instance_type" in result.diff:
                 expected_type = result.diff["instance_type"]["terraform"]
                 print(f"\n--- Drift Detected: EC2 Instance ({result.resource_id}) ---")
                 try:
-                    remediate_ec2_instance_type(region, result.resource_id, expected_type)
+                    remediate_ec2_instance_type(region, result.resource_id, expected_type, env)
                 except Exception as e:
                     print(f"Remediation failed for {result.resource_id}: {e}")
             
             elif result.resource_type == "aws_security_group" and "ingress" in result.diff:
                 print(f"\n--- Drift Detected: Security Group ({result.resource_id}) ---")
                 try:
-                    remediate_security_group(region, result.resource_id, result.diff)
+                    remediate_security_group(region, result.resource_id, result.diff, env)
                 except Exception as e:   
                     print(f"Remediation failed for {result.resource_id}: {e}")
 
             elif result.resource_type == "aws_s3_bucket":
                 print(f"\n--- Drift Detected: S3 Bucket ({result.resource_id}) ---")
                 try:
-                    remediate_s3_bucket(result.resource_id)
+                    remediate_s3_bucket(result.resource_id, env)
                 except Exception as e:
                     print(f"Remediation failed for {result.resource_id}: {e}")
 
             elif result.resource_type == "aws_iam_role" and "attached_policies" in result.diff:
                 print(f"\n--- Drift Detected: IAM Role ({result.resource_id}) ---")
                 try:
-                    remediate_iam_role(result.resource_id, result.diff)
+                    remediate_iam_role(result.resource_id, result.diff, env)
                 except Exception as e:
                     print(f"Remediation failed for {result.resource_id}: {e}")
