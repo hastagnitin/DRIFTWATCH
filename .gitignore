@@ -3,3 +3,4 @@ venv/
 *.tfstate*
 .terraform.lock.hcl
 drift.log
+.env
