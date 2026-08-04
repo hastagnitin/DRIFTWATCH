@@ -19,4 +19,3 @@ COPY drift_engine/ drift_engine/
 COPY run.sh .
 RUN chmod +x run.sh
 
-CMD ["./run.sh"]
