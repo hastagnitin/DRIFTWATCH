@@ -1,14 +1,19 @@
 import os
-from models import DriftResult, DriftType, MONITORED_ATTRIBUTES
+from models import DriftResult, DriftType, MONITORED_RESOURCES
 from tf_parser import load_terraform_state
 from aws_client import (
-    fetch_live_ec2_instances, fetch_live_s3_buckets, 
+    fetch_live_ec2_instances, fetch_live_s3_buckets,
     fetch_live_security_groups, fetch_live_rds_instances,
     fetch_live_lambda_functions, fetch_live_iam_roles
 )
-from notifications import process_alerts
+from notifications import process_alerts, send_telegram_alert
 from database import save_drift_to_db
 from remediation import process_remediation
+
+def process_drift_results(resource_id, drift_status):
+    if drift_status in ["MODIFIED", "UNMANAGED"]:
+        alert_msg = f"🚨 DRIFT ALERT 🚨\nResource: {resource_id}\nType: {drift_status}\nAction Required!"
+        send_telegram_alert(alert_msg)
 
 def normalize_sg_rules(rules) -> list:
     normalized = []
