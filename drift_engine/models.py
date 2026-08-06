@@ -37,3 +37,5 @@ MONITORED_ATTRIBUTES = {
     "aws_db_instance": {"instance_class", "engine", "allocated_storage"},
     "aws_lambda_function": {"runtime", "handler", "memory_size", "timeout"}
 }
+
+MONITORED_RESOURCES = list(MONITORED_ATTRIBUTES.keys())
