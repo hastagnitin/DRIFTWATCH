@@ -2,8 +2,30 @@ import os
 import json
 import urllib.request
 import smtplib
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
+def send_telegram_alert(message: str):
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    
+    if not bot_token or not chat_id:
+        print("Telegram credentials missing in environment variables.")
+        return
+        
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message
+    }
+    
+    try:
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        print("Telegram alert sent successfully.")
+    except Exception as e:
+        print(f"Failed to send Telegram alert: {e}")
 
 def send_slack_alert(webhook_url: str, drift_results: list):
     if not webhook_url:
@@ -26,9 +48,9 @@ def send_slack_alert(webhook_url: str, drift_results: list):
     
     try:
         urllib.request.urlopen(req)
-        print("✅ Slack alert sent successfully.")
+        print("Slack alert sent successfully.")
     except Exception as e:
-        print(f"❌ Failed to send Slack alert: {e}")
+        print(f"Failed to send Slack alert: {e}")
 
 def send_email_alert(smtp_server: str, smtp_port: int, sender_email: str, sender_password: str, recipient_email: str, drift_results: list):
     if not all([smtp_server, sender_email, sender_password, recipient_email]):
@@ -55,9 +77,9 @@ def send_email_alert(smtp_server: str, smtp_port: int, sender_email: str, sender
         server.login(sender_email, sender_password)
         server.send_message(msg)
         server.quit()
-        print("✅ Email alert sent successfully.")
+        print("Email alert sent successfully.")
     except Exception as e:
-        print(f"❌ Failed to send Email alert: {e}")
+        print(f"Failed to send Email alert: {e}")
 
 def process_alerts(drift_results: list):
     if not drift_results:
@@ -69,9 +91,23 @@ def process_alerts(drift_results: list):
     sender_email = os.environ.get("SENDER_EMAIL")
     sender_password = os.environ.get("SENDER_PASSWORD")
     recipient_email = os.environ.get("RECIPIENT_EMAIL")
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
 
     if slack_webhook:
         send_slack_alert(slack_webhook, drift_results)
     
     if sender_email and sender_password and recipient_email:
         send_email_alert(smtp_server, smtp_port, sender_email, sender_password, recipient_email, drift_results)
+
+    if bot_token and chat_id:
+        message_lines = ["DriftWatch Alert: Infrastructure Drift Detected!"]
+        for r in drift_results:
+            line = f"[{r.drift_type.value}] {r.resource_type}: {r.resource_name} ({r.resource_id})"
+            message_lines.append(line)
+            if r.diff:
+                for attr, vals in r.diff.items():
+                    message_lines.append(f"    - {attr}: Expected '{vals['terraform']}', Found '{vals['live']}'")
+        
+        telegram_message = "\n".join(message_lines)
+        send_telegram_alert(telegram_message)
