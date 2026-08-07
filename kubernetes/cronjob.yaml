@@ -8,6 +8,8 @@ spec:
     spec:
       template:
         spec:
+          hostNetwork: true
+          dnsPolicy: Default
           containers:
           - name: driftwatch-engine
             image: driftwatch:latest
@@ -17,5 +19,5 @@ spec:
             - "/app/drift_engine/core.py"
             envFrom:
             - secretRef:
-                name: driftwatch-secrets
+                name: driftwatch-env
           restartPolicy: OnFailure
