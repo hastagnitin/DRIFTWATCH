@@ -1,5 +1,6 @@
 import os
-from models import DriftResult, DriftType, MONITORED_RESOURCES
+from datetime import datetime
+from models import DriftResult, DriftType, MONITORED_RESOURCES, MONITORED_ATTRIBUTES, IGNORED_ATTRIBUTES
 from tf_parser import load_terraform_state
 from aws_client import (
     fetch_live_ec2_instances, fetch_live_s3_buckets,
@@ -12,7 +13,7 @@ from remediation import process_remediation
 
 def process_drift_results(resource_id, drift_status):
     if drift_status in ["MODIFIED", "UNMANAGED"]:
-        alert_msg = f"🚨 DRIFT ALERT 🚨\nResource: {resource_id}\nType: {drift_status}\nAction Required!"
+        alert_msg = f"DRIFT ALERT\nResource: {resource_id}\nType: {drift_status}\nAction Required!"
         send_telegram_alert(alert_msg)
 
 def normalize_sg_rules(rules) -> list:
@@ -66,7 +67,6 @@ def compare_attributes(tf, live, r_type) -> dict:
 
 def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
     tf_resources = load_terraform_state(tf_state_path)
-    
     
     if not tf_resources:
         return []
@@ -129,25 +129,32 @@ def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
     return results
 
 def main():
-    print("--------------------------------------------------")
-    print("DriftWatch Engine Started")
-    print("--------------------------------------------------")
-    
-    
     tf_state_path = os.environ.get("TF_STATE_PATH", "terraform/terraform.tfstate")
     region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
     
     try:
         results = detect_drift(tf_state_path, region)
         
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
+        total_drift = len(results)
+        
+        print("\n=== DRIFTWATCH SCAN REPORT ===")
+        print(f"Scan time: {current_time}")
+        print("-" * 50)
+        
         if not results:
             print("✅ No drift detected. Infrastructure matches IaC.")
         else:
             for r in results:
-                print(f"[{r.drift_type.value}] {r.resource_type}: {r.resource_name} ({r.resource_id})")
+                print(f"\n[{r.drift_type.value}] {r.resource_type}: {r.resource_name} ({r.resource_id})")
                 if r.diff:
                     for attr, vals in r.diff.items():
-                        print(f"  ⚠️ {attr}: Expected '{vals['terraform']}', Found '{vals['live']}'")
+                        print(f"  Attribute: {attr}")
+                        print(f"  Terraform: {vals['terraform']}")
+                        print(f"  Live AWS:  {vals['live']}")
+            
+            print("-" * 50)
+            print(f"Total drift found: {total_drift} resources\n")
             
             process_alerts(results)
             save_drift_to_db(results)
