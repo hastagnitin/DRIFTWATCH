@@ -11,7 +11,7 @@ spec:
           containers:
           - name: driftwatch-engine
             image: driftwatch:latest
-            imagePullPolicy: IfNotPresent
+            imagePullPolicy: Never
             command:
             - "python"
             - "/app/drift_engine/core.py"
