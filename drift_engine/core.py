@@ -65,11 +65,11 @@ def compare_attributes(tf, live, r_type) -> dict:
             
     return diff
 
-def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
+def detect_drift(tf_state_path: str, region: str):
     tf_resources = load_terraform_state(tf_state_path)
     
     if not tf_resources:
-        return []
+        return [], 0
         
     live_ec2 = fetch_live_ec2_instances(region)
     live_s3 = fetch_live_s3_buckets(region)
@@ -82,6 +82,7 @@ def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
     
     results = []
     all_ids = set(tf_resources) | set(live_resources)
+    total_scanned = len(all_ids)
     
     for rid in all_ids:
         in_tf = rid in tf_resources
@@ -126,35 +127,69 @@ def detect_drift(tf_state_path: str, region: str) -> list[DriftResult]:
                     diff=diff
                 ))
                 
-    return results
+    return results, total_scanned
+
+def get_severity(r_type, d_type):
+    if r_type in ["aws_security_group", "aws_iam_role"]:
+        return "CRITICAL"
+    if d_type == DriftType.MISSING or r_type == "aws_instance":
+        return "HIGH"
+    return "MEDIUM"
+
+def get_genuine_cost(instance_type):
+    prices = {
+        "t2.micro": 0,
+        "t3.micro": 850,
+        "t3.small": 1700,
+        "t3.large": 2847,
+        "t3.medium": 3400
+    }
+    return prices.get(instance_type, 0)
 
 def main():
     tf_state_path = os.environ.get("TF_STATE_PATH", "terraform/terraform.tfstate")
     region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
     
     try:
-        results = detect_drift(tf_state_path, region)
+        results, total_scanned = detect_drift(tf_state_path, region)
         
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
         total_drift = len(results)
         
         print("\n=== DRIFTWATCH SCAN REPORT ===")
-        print(f"Scan time: {current_time}")
-        print("-" * 50)
+        print(f"Scan time: {current_time} | Resources scanned: {total_scanned}\n")
         
         if not results:
-            print("✅ No drift detected. Infrastructure matches IaC.")
+            print("No drift detected. Infrastructure matches IaC.")
         else:
+            crit_count = 0
+            high_count = 0
+            
             for r in results:
-                print(f"\n[{r.drift_type.value}] {r.resource_type}: {r.resource_name} ({r.resource_id})")
-                if r.diff:
+                severity = get_severity(r.resource_type, r.drift_type)
+                
+                if severity == "CRITICAL":
+                    crit_count += 1
+                elif severity == "HIGH":
+                    high_count += 1
+                    
+                print(f"[{r.drift_type.value}] {r.resource_type}: {r.resource_id}")
+                
+                if r.drift_type == DriftType.UNMANAGED and r.resource_type == "aws_instance":
+                    inst_type = r.live_attributes.get("instance_type", "unknown")
+                    cost = "{:,}".format(get_genuine_cost(inst_type))
+                    print(f"  Type: {inst_type} (created manually in console)")
+                    print(f"  Severity: {severity} | Cost: +Rs.{cost}/month (untracked)\n")
+                elif r.diff:
                     for attr, vals in r.diff.items():
                         print(f"  Attribute: {attr}")
                         print(f"  Terraform: {vals['terraform']}")
                         print(f"  Live AWS:  {vals['live']}")
+                    print(f"  Severity: {severity}\n")
+                else:
+                    print(f"  Severity: {severity}\n")
             
-            print("-" * 50)
-            print(f"Total drift found: {total_drift} resources\n")
+            print(f"Total drift found: {total_drift} resources  |  CRITICAL: {crit_count}  HIGH: {high_count}\n")
             
             process_alerts(results)
             save_drift_to_db(results)
