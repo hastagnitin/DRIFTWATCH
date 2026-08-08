@@ -10,10 +10,11 @@ from aws_client import (
 from notifications import process_alerts, send_telegram_alert
 from database import save_drift_to_db
 from remediation import process_remediation
+from explain import get_drift_explanation
 
-def process_drift_results(resource_id, drift_status):
+def process_drift_results(resource_id, drift_status, ai_explanation=""):
     if drift_status in ["MODIFIED", "UNMANAGED"]:
-        alert_msg = f"DRIFT ALERT\nResource: {resource_id}\nType: {drift_status}\nAction Required!"
+        alert_msg = f"DRIFT ALERT\nResource: {resource_id}\nType: {drift_status}\nAction Required!\n\nAI Analysis:\n{ai_explanation}"
         send_telegram_alert(alert_msg)
 
 def normalize_sg_rules(rules) -> list:
@@ -175,19 +176,34 @@ def main():
                     
                 print(f"[{r.drift_type.value}] {r.resource_type}: {r.resource_id}")
                 
+                ai_text = ""
+                
                 if r.drift_type == DriftType.UNMANAGED and r.resource_type == "aws_instance":
                     inst_type = r.live_attributes.get("instance_type", "unknown")
                     cost = "{:,}".format(get_genuine_cost(inst_type))
                     print(f"  Type: {inst_type} (created manually in console)")
-                    print(f"  Severity: {severity} | Cost: +Rs.{cost}/month (untracked)\n")
+                    print(f"  Severity: {severity} | Cost: +Rs.{cost}/month (untracked)")
+                    
+                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, r.live_attributes)
+                    
                 elif r.diff:
                     for attr, vals in r.diff.items():
                         print(f"  Attribute: {attr}")
                         print(f"  Terraform: {vals['terraform']}")
                         print(f"  Live AWS:  {vals['live']}")
-                    print(f"  Severity: {severity}\n")
+                    print(f"  Severity: {severity}")
+                    
+                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, r.diff)
                 else:
-                    print(f"  Severity: {severity}\n")
+                    print(f"  Severity: {severity}")
+                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, {"status": "missing"})
+
+                if ai_text:
+                    print(f"  AI Analysis: {ai_text}\n")
+                else:
+                    print("\n")
+                    
+                process_drift_results(r.resource_id, r.drift_type.value, ai_text)
             
             print(f"Total drift found: {total_drift} resources  |  CRITICAL: {crit_count}  HIGH: {high_count}\n")
             
