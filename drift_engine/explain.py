@@ -1,18 +1,14 @@
 import os
 import json
 import requests
-import urllib.parse
 
 def get_drift_explanation(resource_type, resource_id, diff_data):
-    raw_key = os.environ.get("GEMINI_API_KEY", "")
-    api_key = "".join(raw_key.split())
+    api_key = os.environ.get("GROQ_API_KEY", "").strip()
     
     if not api_key:
-        return "AI explanation unavailable: GEMINI_API_KEY not set in environment."
+        return "AI explanation unavailable: GROQ_API_KEY not set in environment."
 
-    safe_key = urllib.parse.quote(api_key)
-    
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={safe_key}"
+    url = "https://api.groq.com/openai/v1/chat/completions"
     
     prompt = (
         f"You are a strict AWS DevOps expert. Analyze this infrastructure drift.\n"
@@ -24,16 +20,23 @@ def get_drift_explanation(resource_type, resource_id, diff_data):
     )
 
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {"role": "system", "content": "You are a helpful AWS DevOps assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2
     }
     
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
 
     try:
         response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()
         data = response.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        return data["choices"][0]["message"]["content"]
     except Exception as e:
-        error_msg = str(e).replace(safe_key, "[HIDDEN_API_KEY]").replace(api_key, "[HIDDEN_API_KEY]")
-        return f"AI API Error: {error_msg}"
+        return f"AI API Error (Groq): {e}"
