@@ -200,6 +200,7 @@ def main():
 
                 if ai_text:
                     print(f"  AI Analysis: {ai_text}\n")
+                    r.ai_analysis = ai_text
                 else:
                     print("\n")
                     
