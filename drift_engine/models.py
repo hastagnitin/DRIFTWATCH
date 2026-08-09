@@ -15,6 +15,7 @@ class DriftResult:
     tf_attributes: dict = field(default_factory=dict)
     live_attributes: dict = field(default_factory=dict)
     diff: dict = field(default_factory=dict)
+    ai_analysis: str = ""
 
 IGNORED_ATTRIBUTES = {
     "aws_instance": {
