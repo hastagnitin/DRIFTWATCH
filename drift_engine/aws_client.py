@@ -15,6 +15,11 @@ def fetch_live_ec2_instances(region: str) -> dict:
                 tags_dict = {t["Key"]: t["Value"] for t in tags_list}
                 name = tags_dict.get("Name", "Unknown")
                 
+                sg_ids = []
+                for sg in instance.get("SecurityGroups", []):
+                    sg_ids.append(sg.get("GroupId"))
+                sg_ids.sort()
+                
                 live[instance["InstanceId"]] = {
                     "type": "aws_instance",
                     "name": name,
@@ -23,6 +28,7 @@ def fetch_live_ec2_instances(region: str) -> dict:
                         "instance_type": instance["InstanceType"],
                         "ami": instance["ImageId"],
                         "tags": tags_dict,
+                        "vpc_security_group_ids": sg_ids
                     },
                 }
     return live
