@@ -2,7 +2,7 @@ import os
 import json
 import requests
 
-def get_drift_explanation(resource_type, resource_id, diff_data):
+def get_drift_explanation(resource_type, resource_id, diff_data, drift_type):
     api_key = os.environ.get("GROQ_API_KEY", "").strip()
     
     if not api_key:
@@ -14,9 +14,14 @@ def get_drift_explanation(resource_type, resource_id, diff_data):
         f"You are a strict AWS DevOps expert. Analyze this infrastructure drift.\n"
         f"Resource Type: {resource_type}\n"
         f"Resource ID: {resource_id}\n"
+        f"Drift Type: {drift_type}\n"
         f"Diff Data: {json.dumps(diff_data)}\n\n"
+        f"Strict Remediation Rules based on Drift Type:\n"
+        f"- UNMANAGED: This resource exists in AWS but is not tracked by Terraform state. The ONLY fix is to provide an exact `terraform import` command. Do NOT create a resource block.\n"
+        f"- MISSING: This resource exists in Terraform state but was manually deleted from AWS. The fix is to provide a fresh Terraform resource block to recreate it.\n"
+        f"- MODIFIED: This resource attributes in AWS differ from Terraform state. Provide a short Terraform snippet to correct the drift.\n\n"
         f"Provide a brief, plain-English explanation of the security or operational risk (max 3 sentences). "
-        f"Then, provide a short Terraform code snippet to fix it."
+        f"Then, provide the exact Terraform fix as instructed above."
     )
 
     payload = {
