@@ -31,7 +31,7 @@ IGNORED_ATTRIBUTES = {
 }
 
 MONITORED_ATTRIBUTES = {
-    "aws_instance": {"instance_type", "ami", "security_groups"},
+    "aws_instance": {"instance_type", "ami", "vpc_security_group_ids"},
     "aws_security_group": {"ingress", "egress", "description"}, 
     "aws_s3_bucket": {"bucket", "acl", "policy"},
     "aws_iam_role": {"assume_role_policy", "attached_policies", "path"}, 
