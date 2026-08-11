@@ -108,16 +108,14 @@ def process_alerts(drift_results: list):
         send_email_alert(smtp_server, smtp_port, sender_email, sender_password, recipient_email, drift_results)
 
     if bot_token and chat_id:
-        message_lines = ["DriftWatch Alert: Infrastructure Drift Detected!"]
+        message_lines = ["DriftWatch Alert Summary:"]
         for r in drift_results:
             line = f"[{r.drift_type.value}] {r.resource_type}: {r.resource_name} ({r.resource_id})"
             message_lines.append(line)
-            if r.diff:
-                for attr, vals in r.diff.items():
-                    message_lines.append(f"    - {attr}: Expected '{vals['terraform']}', Found '{vals['live']}'")
-            if hasattr(r, 'ai_analysis') and r.ai_analysis:
-                message_lines.append(f"    - AI Analysis: {r.ai_analysis}")
-                message_lines.append("")
-        
+            
         telegram_message = "\n".join(message_lines)
+        
+        if len(telegram_message) > 4000:
+            telegram_message = telegram_message[:4000] + "\n...[TRUNCATED]"
+            
         send_telegram_alert(telegram_message)
