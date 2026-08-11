@@ -184,7 +184,7 @@ def main():
                     print(f"  Type: {inst_type} (created manually in console)")
                     print(f"  Severity: {severity} | Cost: +Rs.{cost}/month (untracked)")
                     
-                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, r.live_attributes)
+                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, r.live_attributes, r.drift_type.value)
                     
                 elif r.diff:
                     for attr, vals in r.diff.items():
@@ -193,10 +193,10 @@ def main():
                         print(f"  Live AWS:  {vals['live']}")
                     print(f"  Severity: {severity}")
                     
-                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, r.diff)
+                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, r.diff, r.drift_type.value)
                 else:
                     print(f"  Severity: {severity}")
-                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, {"status": "missing"})
+                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, {"status": "missing"}, r.drift_type.value)
 
                 if ai_text:
                     print(f"  AI Analysis: {ai_text}\n")
