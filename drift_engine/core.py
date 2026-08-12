@@ -5,7 +5,8 @@ from tf_parser import load_terraform_state
 from aws_client import (
     fetch_live_ec2_instances, fetch_live_s3_buckets,
     fetch_live_security_groups, fetch_live_rds_instances,
-    fetch_live_lambda_functions, fetch_live_iam_roles
+    fetch_live_lambda_functions, fetch_live_iam_roles,
+    get_resource_cost
 )
 from notifications import process_alerts, send_telegram_alert
 from database import save_drift_to_db
@@ -137,16 +138,6 @@ def get_severity(r_type, d_type):
         return "HIGH"
     return "MEDIUM"
 
-def get_genuine_cost(instance_type):
-    prices = {
-        "t2.micro": 0,
-        "t3.micro": 850,
-        "t3.small": 1700,
-        "t3.large": 2847,
-        "t3.medium": 3400
-    }
-    return prices.get(instance_type, 0)
-
 def main():
     tf_state_path = os.environ.get("TF_STATE_PATH", "terraform/terraform.tfstate")
     region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
@@ -180,7 +171,7 @@ def main():
                 
                 if r.drift_type == DriftType.UNMANAGED and r.resource_type == "aws_instance":
                     inst_type = r.live_attributes.get("instance_type", "unknown")
-                    cost = "{:,}".format(get_genuine_cost(inst_type))
+                    cost = "{:,.2f}".format(get_resource_cost(r.resource_id))
                     print(f"  Type: {inst_type} (created manually in console)")
                     print(f"  Severity: {severity} | Cost: +Rs.{cost}/month (untracked)")
                     
