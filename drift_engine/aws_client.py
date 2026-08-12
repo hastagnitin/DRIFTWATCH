@@ -187,3 +187,31 @@ def fetch_live_iam_roles(region: str = "ap-south-1") -> dict:
     except Exception as e:
         print(f"Error fetching IAM roles: {e}")
     return live
+
+from datetime import datetime, timedelta
+import boto3
+
+def get_resource_cost(resource_id: str) -> float:
+    try:
+        client = boto3.client("ce", region_name="us-east-1")
+        
+        end_date = datetime.today().strftime("%Y-%m-%d")
+        start_date = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
+        
+        response = client.get_cost_and_usage(
+            TimePeriod={"Start": start_date, "End": end_date},
+            Granularity="MONTHLY",
+            Metrics=["UnblendedCost"],
+            Filter={
+                "Dimensions": {
+                    "Key": "RESOURCE_ID",
+                    "Values": [resource_id]
+                }
+            }
+        )
+        
+        usd_cost = float(response["ResultsByTime"][0]["Total"]["UnblendedCost"]["Amount"])
+        inr_cost = round(usd_cost * 83.5, 2)
+        return inr_cost
+    except Exception:
+        return 0.0
