@@ -17,4 +17,4 @@ dependencies = [
 driftwatch = "driftwatch.cli:app"
 
 [tool.setuptools.packages.find]
-include = ["driftwatch", "drift_engine"]
+include = ["driftwatch*", "drift_engine*"]
