@@ -7,6 +7,16 @@ base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(base_dir)
 sys.path.append(os.path.join(base_dir, "drift_engine"))
 
+env_file = os.path.join(base_dir, ".env")
+if os.path.exists(env_file):
+    with open(env_file, "r") as f:
+        for line in f:
+            stripped_line = line.strip()
+            if stripped_line and not stripped_line.startswith("#"):
+                if "=" in stripped_line:
+                    k, v = stripped_line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
 from drift_engine.core import detect_drift, get_severity, get_resource_cost, process_drift_results
 from drift_engine.explain import get_drift_explanation
 from drift_engine.models import DriftType
