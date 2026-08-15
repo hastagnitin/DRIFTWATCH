@@ -201,7 +201,6 @@ def main():
             
             process_alerts(results)
             save_drift_to_db(results)
-            process_remediation(results)
                         
     except Exception as e:
         print(f"Error during execution: {e}")
