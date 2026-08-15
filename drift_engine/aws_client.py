@@ -1,4 +1,5 @@
 import boto3
+from datetime import datetime, timedelta
 
 def fetch_live_ec2_instances(region: str) -> dict:
     ec2 = boto3.client("ec2", region_name=region)
@@ -59,7 +60,7 @@ def fetch_live_s3_buckets(region: str) -> dict:
                 },
             }
     except Exception as e:
-        print(f"Error fetching S3 buckets: {e}")
+        pass
     return live
 
 def fetch_live_security_groups(region: str) -> dict:
@@ -79,22 +80,24 @@ def fetch_live_security_groups(region: str) -> dict:
                 
                 ingress_rules = []
                 for perm in sg.get("IpPermissions", []):
-                    for ip_range in perm.get("IpRanges", []):
+                    cidrs = [ip.get("CidrIp") for ip in perm.get("IpRanges", []) if ip.get("CidrIp")]
+                    if cidrs:
                         ingress_rules.append({
                             "from_port": perm.get("FromPort", 0),
                             "to_port": perm.get("ToPort", 0),
                             "protocol": perm.get("IpProtocol", "-1"),
-                            "cidr_blocks": [ip_range.get("CidrIp")]
+                            "cidr_blocks": cidrs
                         })
                 
                 egress_rules = []
                 for perm in sg.get("IpPermissionsEgress", []):
-                    for ip_range in perm.get("IpRanges", []):
+                    cidrs = [ip.get("CidrIp") for ip in perm.get("IpRanges", []) if ip.get("CidrIp")]
+                    if cidrs:
                         egress_rules.append({
                             "from_port": perm.get("FromPort", 0),
                             "to_port": perm.get("ToPort", 0),
                             "protocol": perm.get("IpProtocol", "-1"),
-                            "cidr_blocks": [ip_range.get("CidrIp")]
+                            "cidr_blocks": cidrs
                         })
                 
                 live[sg_id] = {
@@ -110,7 +113,7 @@ def fetch_live_security_groups(region: str) -> dict:
                     },
                 }
     except Exception as e:
-        print(f"Error fetching Security Groups: {e}")
+        pass
     return live
 
 def fetch_live_rds_instances(region: str = "ap-south-1") -> dict:
@@ -137,7 +140,7 @@ def fetch_live_rds_instances(region: str = "ap-south-1") -> dict:
                     },
                 }
     except Exception as e:
-        print(f"Error fetching RDS instances: {e}")
+        pass
     return live
 
 def fetch_live_lambda_functions(region: str = "ap-south-1") -> dict:
@@ -162,7 +165,7 @@ def fetch_live_lambda_functions(region: str = "ap-south-1") -> dict:
                     },
                 }
     except Exception as e:
-        print(f"Error fetching Lambda functions: {e}")
+        pass
     return live
 
 def fetch_live_iam_roles(region: str = "ap-south-1") -> dict:
@@ -185,11 +188,8 @@ def fetch_live_iam_roles(region: str = "ap-south-1") -> dict:
                     }
                 }
     except Exception as e:
-        print(f"Error fetching IAM roles: {e}")
+        pass
     return live
-
-from datetime import datetime, timedelta
-import boto3
 
 def get_resource_cost(resource_id: str) -> float:
     try:
