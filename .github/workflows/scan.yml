@@ -30,6 +30,11 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
+      - name: Fetch Terraform State from S3
+        run: |
+          mkdir -p terraform
+          aws s3 cp s3://driftwatch-state-nitin-007/terraform.tfstate terraform/terraform.tfstate
+
       - name: Run DriftWatch Scan
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
