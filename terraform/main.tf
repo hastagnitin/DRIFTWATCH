@@ -1,3 +1,11 @@
+terraform {
+  backend "s3" {
+    bucket = "driftwatch-state-nitin-007"
+    key    = "terraform.tfstate"
+    region = "ap-south-1"
+  }
+}
+
 provider "aws" {
   region = "ap-south-1" 
 }
@@ -88,6 +96,7 @@ resource "aws_lambda_function" "driftwatch_lambda" {
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 }
+
 resource "aws_security_group" "driftwatch_managed_test" {
     name        = "driftwatch-managed-test-sg"
     description = "Testing DriftWatch Auto Remediation"
