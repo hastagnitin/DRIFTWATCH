@@ -3,14 +3,17 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "driftwatch"
+name = "driftwatch-cli"
 version = "3.0.0"
+description = "CLI tool that detects Terraform infrastructure drift against live AWS, explains it with AI, and guides remediation."
+requires-python = ">=3.10"
 dependencies = [
     "boto3",
     "typer",
     "groq",
     "python-telegram-bot",
-    "psycopg2-binary"
+    "psycopg2-binary",
+    "requests"
 ]
 
 [project.scripts]
