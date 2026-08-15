@@ -4,6 +4,9 @@ import os
 def get_environment_tag(tags):
     if not tags:
         return 'unknown'
+    if isinstance(tags, dict):
+        value = tags.get('Environment')
+        return value.lower() if value else 'unknown'
     for tag in tags:
         if isinstance(tag, dict) and tag.get('Key') == 'Environment':
             return tag.get('Value').lower()
@@ -155,9 +158,8 @@ def remediate_iam_role(role_name: str, diff_data: dict, env: str):
 def process_remediation(drift_results: list):
     region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
     for result in drift_results:
-        tags = getattr(result, 'tags', [])
-        if not tags and hasattr(result, 'live_state'):
-            tags = result.live_state.get('Tags', [])
+        attrs = result.live_attributes or result.tf_attributes or {}
+        tags = attrs.get('tags', {})
         env = get_environment_tag(tags)
 
         if result.drift_type.value == "MODIFIED":
