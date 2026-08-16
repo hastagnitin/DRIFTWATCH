@@ -50,89 +50,121 @@ def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: st
 
 def remediate_security_group(region: str, sg_id: str, diff_data: dict, env: str):
     ec2 = boto3.client('ec2', region_name=region)
-    expected_ingress = diff_data.get("ingress", {}).get("terraform", [])
-    live_ingress = diff_data.get("ingress", {}).get("live", [])
     
-    print(f"Checking Security Group {sg_id} for unauthorized rules...")
-    for live_rule in live_ingress:
-        is_authorized = False
-        for exp_rule in expected_ingress:
-            if (live_rule.get('from_port') == exp_rule.get('from_port') and
-                live_rule.get('to_port') == exp_rule.get('to_port') and
-                live_rule.get('protocol') == exp_rule.get('protocol')):
-                is_authorized = True
-                break
-                
-        if not is_authorized:
-            if confirm_action(f"Revoke unauthorized rule (Port {live_rule.get('from_port')}) in {sg_id}", env, False):
-                print(f"Revoking unauthorized rule: {live_rule}")
-                try:
-                    ec2.revoke_security_group_ingress(
-                        GroupId=sg_id,
-                        IpPermissions=[{
-                            'IpProtocol': live_rule['protocol'],
-                            'FromPort': live_rule['from_port'],
-                            'ToPort': live_rule['to_port'],
-                            'IpRanges': [{'CidrIp': cidr} for cidr in live_rule.get('cidr_blocks', []) if cidr]
-                        }]
-                    )
-                    print(f"✅ [REMEDIATED] Successfully removed unauthorized Inbound Rule from {sg_id}")
-                except Exception as e:
-                    print(f"❌ Failed to revoke rule in {sg_id}: {e}")
-            else:
-                print(f"⏭️  Skipped revoking rule for Port {live_rule.get('from_port')}")
-
-    print(f"Checking Security Group {sg_id} for missing IaC rules...")
-    for exp_rule in expected_ingress:
-        is_missing = True
-        for live_rule in live_ingress:
-            if (live_rule.get('from_port') == exp_rule.get('from_port') and
-                live_rule.get('to_port') == exp_rule.get('to_port') and
-                live_rule.get('protocol') == exp_rule.get('protocol')):
-                is_missing = False
-                break
+    # 1. INGRESS RULES
+    if "ingress" in diff_data:
+        expected_ingress = diff_data["ingress"].get("terraform", [])
+        live_ingress = diff_data["ingress"].get("live", [])
         
-        if is_missing:
-            if confirm_action(f"Restore missing IaC rule (Port {exp_rule.get('from_port')}) in {sg_id}", env, False):
-                print(f"Restoring missing IaC rule: Port {exp_rule.get('from_port')}")
-                try:
-                    ec2.authorize_security_group_ingress(
-                        GroupId=sg_id,
-                        IpPermissions=[{
-                            'IpProtocol': exp_rule['protocol'],
-                            'FromPort': exp_rule['from_port'],
-                            'ToPort': exp_rule['to_port'],
-                            'IpRanges': [{'CidrIp': cidr} for cidr in exp_rule.get('cidr_blocks', []) if cidr]
-                        }]
-                    )
-                    print(f"✅ [REMEDIATED] Successfully restored missing IaC Inbound Rule to {sg_id}")
-                except Exception as e:
-                    print(f"❌ Failed to restore rule in {sg_id}: {e}")
-            else:
-                print(f"⏭️  Skipped restoring rule for Port {exp_rule.get('from_port')}")
-                
-    print(f"Completed remediation check for Security Group {sg_id}")
+        print(f"Checking Security Group {sg_id} for Ingress drift...")
+        for live_rule in live_ingress:
+            if live_rule not in expected_ingress:
+                if confirm_action(f"Revoke unauthorized Inbound rule (Port {live_rule.get('from_port')}) in {sg_id}", env, False):
+                    try:
+                        ec2.revoke_security_group_ingress(GroupId=sg_id, IpPermissions=[{
+                            'IpProtocol': live_rule['protocol'], 'FromPort': live_rule['from_port'], 'ToPort': live_rule['to_port'],
+                            'IpRanges': [{'CidrIp': c} for c in live_rule.get('cidr_blocks', []) if c]
+                        }])
+                        print(f"✅ [REMEDIATED] Removed unauthorized Inbound Rule from {sg_id}")
+                    except Exception as e:
+                        print(f"❌ Failed to revoke Inbound rule: {e}")
 
-def remediate_s3_bucket(bucket_name: str, env: str):
-    if not confirm_action(f"Enforce strict Public Access Block on S3 Bucket '{bucket_name}'", env, False):
-        print(f"⏭️  Skipped remediation for S3 bucket {bucket_name}")
-        return
+        for exp_rule in expected_ingress:
+            if exp_rule not in live_ingress:
+                if confirm_action(f"Restore missing IaC Inbound rule (Port {exp_rule.get('from_port')}) in {sg_id}", env, False):
+                    try:
+                        ec2.authorize_security_group_ingress(GroupId=sg_id, IpPermissions=[{
+                            'IpProtocol': exp_rule['protocol'], 'FromPort': exp_rule['from_port'], 'ToPort': exp_rule['to_port'],
+                            'IpRanges': [{'CidrIp': c} for c in exp_rule.get('cidr_blocks', []) if c]
+                        }])
+                        print(f"✅ [REMEDIATED] Restored missing Inbound Rule to {sg_id}")
+                    except Exception as e:
+                        print(f"❌ Failed to restore Inbound rule: {e}")
 
+    # 2. EGRESS RULES
+    if "egress" in diff_data:
+        expected_egress = diff_data["egress"].get("terraform", [])
+        live_egress = diff_data["egress"].get("live", [])
+        
+        print(f"Checking Security Group {sg_id} for Egress drift...")
+        for live_rule in live_egress:
+            if live_rule not in expected_egress:
+                if confirm_action(f"Revoke unauthorized Outbound rule (Port {live_rule.get('from_port')}) in {sg_id}", env, False):
+                    try:
+                        ec2.revoke_security_group_egress(GroupId=sg_id, IpPermissions=[{
+                            'IpProtocol': live_rule['protocol'], 'FromPort': live_rule['from_port'], 'ToPort': live_rule['to_port'],
+                            'IpRanges': [{'CidrIp': c} for c in live_rule.get('cidr_blocks', []) if c]
+                        }])
+                        print(f"✅ [REMEDIATED] Removed unauthorized Outbound Rule from {sg_id}")
+                    except Exception as e:
+                        print(f"❌ Failed to revoke Outbound rule: {e}")
+
+        for exp_rule in expected_egress:
+            if exp_rule not in live_egress:
+                if confirm_action(f"Restore missing IaC Outbound rule (Port {exp_rule.get('from_port')}) in {sg_id}", env, False):
+                    try:
+                        ec2.authorize_security_group_egress(GroupId=sg_id, IpPermissions=[{
+                            'IpProtocol': exp_rule['protocol'], 'FromPort': exp_rule['from_port'], 'ToPort': exp_rule['to_port'],
+                            'IpRanges': [{'CidrIp': c} for c in exp_rule.get('cidr_blocks', []) if c]
+                        }])
+                        print(f"✅ [REMEDIATED] Restored missing Outbound Rule to {sg_id}")
+                    except Exception as e:
+                        print(f"❌ Failed to restore Outbound rule: {e}")
+
+    # 3. DESCRIPTION
+    if "description" in diff_data:
+        print(f"⚠️  Description drift detected for {sg_id}. SG descriptions cannot be updated dynamically. Please recreate via Terraform.")
+
+def remediate_s3_bucket(bucket_name: str, diff_data: dict, env: str):
     s3 = boto3.client('s3')
-    print(f"Remediating S3 Bucket {bucket_name} by enforcing public access block...")
-    try:
-        s3.put_public_access_block(
-            Bucket=bucket_name,
-            PublicAccessBlockConfiguration={
-                'BlockPublicAcls': True,
-                'IgnorePublicAcls': True,
-                'BlockPublicPolicy': True,
-                'RestrictPublicBuckets': True
-            }
-        )
-        print(f"✅ [REMEDIATED] Successfully blocked public access for {bucket_name}")
-    except Exception as e:
-        print(f"❌ Failed to remediate S3 bucket {bucket_name}: {e}")
+    
+    if "tags" in diff_data:
+        expected_tags = diff_data["tags"].get("terraform", {})
+        if confirm_action(f"Restore IaC tags for S3 Bucket '{bucket_name}'", env, False):
+            try:
+                tag_set = [{'Key': k, 'Value': v} for k, v in expected_tags.items()]
+                s3.put_bucket_tagging(Bucket=bucket_name, Tagging={'TagSet': tag_set})
+                print(f"✅ [REMEDIATED] Successfully restored tags for {bucket_name}")
+            except Exception as e:
+                print(f"❌ Failed to restore S3 tags: {e}")
+                
+    if "bucket" in diff_data:
+        print(f"⚠️  Bucket name drift detected for {bucket_name}. S3 buckets cannot be renamed. Please recreate via Terraform.")
+
+def remediate_rds_instance(region: str, db_id: str, diff_data: dict, env: str):
+    rds = boto3.client('rds', region_name=region)
+    updates = {}
+    
+    if "instance_class" in diff_data:
+        updates['DBInstanceClass'] = diff_data["instance_class"]["terraform"]
+    if "allocated_storage" in diff_data:
+        updates['AllocatedStorage'] = diff_data["allocated_storage"]["terraform"]
+        
+    if updates:
+        if confirm_action(f"Modify RDS {db_id} with new configs: {updates}", env, True):
+            try:
+                updates['ApplyImmediately'] = True
+                rds.modify_db_instance(DBInstanceIdentifier=db_id, **updates)
+                print(f"✅ [REMEDIATED] Initiated RDS modification for {db_id}. This may take several minutes.")
+            except Exception as e:
+                print(f"❌ Failed to remediate RDS {db_id}: {e}")
+
+def remediate_lambda_function(region: str, func_name: str, diff_data: dict, env: str):
+    lam = boto3.client('lambda', region_name=region)
+    updates = {}
+    
+    if "runtime" in diff_data: updates['Runtime'] = diff_data["runtime"]["terraform"]
+    if "handler" in diff_data: updates['Handler'] = diff_data["handler"]["terraform"]
+    if "memory_size" in diff_data: updates['MemorySize'] = diff_data["memory_size"]["terraform"]
+    if "timeout" in diff_data: updates['Timeout'] = diff_data["timeout"]["terraform"]
+    
+    if updates:
+        if confirm_action(f"Modify Lambda {func_name} with {updates}", env, False):
+            try:
+                lam.update_function_configuration(FunctionName=func_name, **updates)
+                print(f"✅ [REMEDIATED] Successfully modified Lambda {func_name}")
+            except Exception as e:
+                print(f"❌ Failed to remediate Lambda {func_name}: {e}")
 
 def remediate_iam_role(role_name: str, diff_data: dict, env: str):
     iam = boto3.client('iam')
@@ -143,17 +175,20 @@ def remediate_iam_role(role_name: str, diff_data: dict, env: str):
     for live_policy in live_policies:
         if live_policy not in expected_policies:
             if confirm_action(f"Detach unauthorized policy '{live_policy}' from Role '{role_name}'", env, False):
-                print(f"Detaching unauthorized policy: {live_policy}")
                 try:
-                    iam.detach_role_policy(
-                        RoleName=role_name,
-                        PolicyArn=live_policy
-                    )
+                    iam.detach_role_policy(RoleName=role_name, PolicyArn=live_policy)
                     print(f"✅ [REMEDIATED] Successfully detached {live_policy} from {role_name}")
                 except Exception as e:
                     print(f"❌ Failed to detach policy from {role_name}: {e}")
-            else:
-                print(f"⏭️  Skipped detaching policy {live_policy}")
+
+    for exp_policy in expected_policies:
+        if exp_policy not in live_policies:
+            if confirm_action(f"Attach missing IaC policy '{exp_policy}' to Role '{role_name}'", env, False):
+                try:
+                    iam.attach_role_policy(RoleName=role_name, PolicyArn=exp_policy)
+                    print(f"✅ [REMEDIATED] Successfully attached {exp_policy} to {role_name}")
+                except Exception as e:
+                    print(f"❌ Failed to attach policy to {role_name}: {e}")
 
 def process_remediation(drift_results: list):
     region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
@@ -163,31 +198,27 @@ def process_remediation(drift_results: list):
         env = get_environment_tag(tags)
 
         if result.drift_type.value == "MODIFIED":
+            print(f"\n--- Drift Detected: {result.resource_type} ({result.resource_id}) ---")
+            
             if result.resource_type == "aws_instance" and "instance_type" in result.diff:
                 expected_type = result.diff["instance_type"]["terraform"]
-                print(f"\n--- Drift Detected: EC2 Instance ({result.resource_id}) ---")
-                try:
-                    remediate_ec2_instance_type(region, result.resource_id, expected_type, env)
-                except Exception as e:
-                    print(f"Remediation failed for {result.resource_id}: {e}")
+                remediate_ec2_instance_type(region, result.resource_id, expected_type, env)
             
-            elif result.resource_type == "aws_security_group" and "ingress" in result.diff:
-                print(f"\n--- Drift Detected: Security Group ({result.resource_id}) ---")
-                try:
-                    remediate_security_group(region, result.resource_id, result.diff, env)
-                except Exception as e:   
-                    print(f"Remediation failed for {result.resource_id}: {e}")
+            elif result.resource_type == "aws_security_group":
+                remediate_security_group(region, result.resource_id, result.diff, env)
 
             elif result.resource_type == "aws_s3_bucket":
-                print(f"\n--- Drift Detected: S3 Bucket ({result.resource_id}) ---")
-                try:
-                    remediate_s3_bucket(result.resource_id, env)
-                except Exception as e:
-                    print(f"Remediation failed for {result.resource_id}: {e}")
+                remediate_s3_bucket(result.resource_id, result.diff, env)
+                
+            elif result.resource_type == "aws_db_instance":
+                remediate_rds_instance(region, result.resource_id, result.diff, env)
+                
+            elif result.resource_type == "aws_lambda_function":
+                remediate_lambda_function(region, result.resource_id, result.diff, env)
 
-            elif result.resource_type == "aws_iam_role" and "attached_policies" in result.diff:
-                print(f"\n--- Drift Detected: IAM Role ({result.resource_id}) ---")
-                try:
-                    remediate_iam_role(result.resource_id, result.diff, env)
-                except Exception as e:
-                    print(f"Remediation failed for {result.resource_id}: {e}")
+            elif result.resource_type == "aws_iam_role":
+                remediate_iam_role(result.resource_id, result.diff, env)
+                
+        elif result.drift_type.value in ["MISSING", "UNMANAGED"]:
+            print(f"\n--- {result.drift_type.value} Resource Detected: {result.resource_type} ({result.resource_id}) ---")
+            print(f"⚠️  Auto-remediation for {result.drift_type.value} resources is not executed directly. Please review the AI Analysis in the scan report for the exact `terraform import` or creation commands required to fix this.")
