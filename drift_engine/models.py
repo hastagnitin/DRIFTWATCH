@@ -31,12 +31,12 @@ IGNORED_ATTRIBUTES = {
 }
 
 MONITORED_ATTRIBUTES = {
-    "aws_instance": {"instance_type", "ami", "vpc_security_group_ids"},
+    "aws_instance": {"instance_type", "ami"},
     "aws_security_group": {"ingress", "egress", "description"},
     "aws_s3_bucket": {"bucket"},
-    "aws_iam_role": set(),
     "aws_db_instance": {"instance_class", "engine", "allocated_storage"},
-    "aws_lambda_function": {"runtime", "handler", "memory_size", "timeout"}
+    "aws_lambda_function": {"runtime", "handler"},
+    "aws_iam_role": {"attached_policies"}
 }
 
 MONITORED_RESOURCES = list(MONITORED_ATTRIBUTES.keys())
