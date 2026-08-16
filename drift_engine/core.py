@@ -1,22 +1,11 @@
 import os
-from datetime import datetime
-from models import DriftResult, DriftType, MONITORED_RESOURCES, MONITORED_ATTRIBUTES, IGNORED_ATTRIBUTES
-from tf_parser import load_terraform_state
-from aws_client import (
+from drift_engine.models import DriftResult, DriftType, MONITORED_RESOURCES, MONITORED_ATTRIBUTES, IGNORED_ATTRIBUTES
+from drift_engine.tf_parser import load_terraform_state
+from drift_engine.aws_client import (
     fetch_live_ec2_instances, fetch_live_s3_buckets,
     fetch_live_security_groups, fetch_live_rds_instances,
-    fetch_live_lambda_functions, fetch_live_iam_roles,
-    get_resource_cost
+    fetch_live_lambda_functions, fetch_live_iam_roles
 )
-from notifications import process_alerts, send_telegram_alert
-from database import save_drift_to_db
-from remediation import process_remediation
-from explain import get_drift_explanation
-
-def process_drift_results(resource_id, drift_status, ai_explanation=""):
-    if drift_status in ["MODIFIED", "UNMANAGED"]:
-        alert_msg = f"DRIFT ALERT\nResource: {resource_id}\nType: {drift_status}\nAction Required!\n\nAI Analysis:\n{ai_explanation}"
-        send_telegram_alert(alert_msg)
 
 def normalize_sg_rules(rules) -> list:
     normalized = []
@@ -72,14 +61,39 @@ def detect_drift(tf_state_path: str, region: str):
     
     if not tf_resources:
         return [], 0
-        
+
+    failed_types = set()
+
     live_ec2 = fetch_live_ec2_instances(region)
+    if live_ec2 is None:
+        failed_types.add("aws_instance")
+        live_ec2 = {}
+
     live_s3 = fetch_live_s3_buckets(region)
+    if live_s3 is None:
+        failed_types.add("aws_s3_bucket")
+        live_s3 = {}
+
     live_sg = fetch_live_security_groups(region)
+    if live_sg is None:
+        failed_types.add("aws_security_group")
+        live_sg = {}
+
     live_rds = fetch_live_rds_instances(region)
+    if live_rds is None:
+        failed_types.add("aws_db_instance")
+        live_rds = {}
+
     live_lambda = fetch_live_lambda_functions(region)
+    if live_lambda is None:
+        failed_types.add("aws_lambda_function")
+        live_lambda = {}
+
     live_iam = fetch_live_iam_roles(region)
-    
+    if live_iam is None:
+        failed_types.add("aws_iam_role")
+        live_iam = {}
+        
     live_resources = {**live_ec2, **live_s3, **live_sg, **live_rds, **live_lambda, **live_iam}
     
     results = []
@@ -97,6 +111,8 @@ def detect_drift(tf_state_path: str, region: str):
             res_name = live_resources[rid]["name"]
             
         if in_tf and not in_live:
+            if tf_resources[rid]["type"] in failed_types:
+                continue
             results.append(DriftResult(
                 resource_type=tf_resources[rid]["type"],
                 resource_id=rid,
@@ -137,73 +153,3 @@ def get_severity(r_type, d_type):
     if d_type == DriftType.MISSING or r_type == "aws_instance":
         return "HIGH"
     return "MEDIUM"
-
-def main():
-    tf_state_path = os.environ.get("TF_STATE_PATH", "terraform/terraform.tfstate")
-    region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
-    
-    try:
-        results, total_scanned = detect_drift(tf_state_path, region)
-        
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
-        total_drift = len(results)
-        
-        print("\n=== DRIFTWATCH SCAN REPORT ===")
-        print(f"Scan time: {current_time} | Resources scanned: {total_scanned}\n")
-        
-        if not results:
-            print("No drift detected. Infrastructure matches IaC.")
-        else:
-            crit_count = 0
-            high_count = 0
-            
-            for r in results:
-                severity = get_severity(r.resource_type, r.drift_type)
-                
-                if severity == "CRITICAL":
-                    crit_count += 1
-                elif severity == "HIGH":
-                    high_count += 1
-                    
-                print(f"[{r.drift_type.value}] {r.resource_type}: {r.resource_id}")
-                
-                ai_text = ""
-                
-                if r.drift_type == DriftType.UNMANAGED and r.resource_type == "aws_instance":
-                    inst_type = r.live_attributes.get("instance_type", "unknown")
-                    cost = "{:,.2f}".format(get_resource_cost(r.resource_id))
-                    print(f"  Type: {inst_type} (created manually in console)")
-                    print(f"  Severity: {severity} | Cost: +Rs.{cost}/month (untracked)")
-                    
-                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, r.live_attributes, r.drift_type.value)
-                    
-                elif r.diff:
-                    for attr, vals in r.diff.items():
-                        print(f"  Attribute: {attr}")
-                        print(f"  Terraform: {vals['terraform']}")
-                        print(f"  Live AWS:  {vals['live']}")
-                    print(f"  Severity: {severity}")
-                    
-                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, r.diff, r.drift_type.value)
-                else:
-                    print(f"  Severity: {severity}")
-                    ai_text = get_drift_explanation(r.resource_type, r.resource_id, {"status": "missing"}, r.drift_type.value)
-
-                if ai_text:
-                    print(f"  AI Analysis: {ai_text}\n")
-                    r.ai_analysis = ai_text
-                else:
-                    print("\n")
-                    
-                process_drift_results(r.resource_id, r.drift_type.value, ai_text)
-            
-            print(f"Total drift found: {total_drift} resources  |  CRITICAL: {crit_count}  HIGH: {high_count}\n")
-            
-            process_alerts(results)
-            save_drift_to_db(results)
-                        
-    except Exception as e:
-        print(f"Error during execution: {e}")
-
-if __name__ == "__main__":
-    main()
