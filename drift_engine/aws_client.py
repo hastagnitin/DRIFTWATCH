@@ -1,37 +1,42 @@
+import sys
 import boto3
 from datetime import datetime, timedelta
 
 def fetch_live_ec2_instances(region: str) -> dict:
     ec2 = boto3.client("ec2", region_name=region)
     live = {}
-    paginator = ec2.get_paginator("describe_instances")
-    
-    for page in paginator.paginate():
-        for reservation in page["Reservations"]:
-            for instance in reservation["Instances"]:
-                if instance["State"]["Name"] == "terminated":
-                    continue
-                
-                tags_list = instance.get("Tags", [])
-                tags_dict = {t["Key"]: t["Value"] for t in tags_list}
-                name = tags_dict.get("Name", "Unknown")
-                
-                sg_ids = []
-                for sg in instance.get("SecurityGroups", []):
-                    sg_ids.append(sg.get("GroupId"))
-                sg_ids.sort()
-                
-                live[instance["InstanceId"]] = {
-                    "type": "aws_instance",
-                    "name": name,
-                    "attributes": {
-                        "id": instance["InstanceId"],
-                        "instance_type": instance["InstanceType"],
-                        "ami": instance["ImageId"],
-                        "tags": tags_dict,
-                        "vpc_security_group_ids": sg_ids
-                    },
-                }
+    try:
+        paginator = ec2.get_paginator("describe_instances")
+        
+        for page in paginator.paginate():
+            for reservation in page["Reservations"]:
+                for instance in reservation["Instances"]:
+                    if instance["State"]["Name"] == "terminated":
+                        continue
+                    
+                    tags_list = instance.get("Tags", [])
+                    tags_dict = {t["Key"]: t["Value"] for t in tags_list}
+                    name = tags_dict.get("Name", "Unknown")
+                    
+                    sg_ids = []
+                    for sg in instance.get("SecurityGroups", []):
+                        sg_ids.append(sg.get("GroupId"))
+                    sg_ids.sort()
+                    
+                    live[instance["InstanceId"]] = {
+                        "type": "aws_instance",
+                        "name": name,
+                        "attributes": {
+                            "id": instance["InstanceId"],
+                            "instance_type": instance["InstanceType"],
+                            "ami": instance["ImageId"],
+                            "tags": tags_dict,
+                            "vpc_security_group_ids": sg_ids
+                        },
+                    }
+    except Exception as e:
+        print(f"Failed to fetch aws_instance: {e}", file=sys.stderr)
+        return None
     return live
 
 def fetch_live_s3_buckets(region: str) -> dict:
@@ -60,15 +65,15 @@ def fetch_live_s3_buckets(region: str) -> dict:
                 },
             }
     except Exception as e:
-        pass
+        print(f"Failed to fetch aws_s3_bucket: {e}", file=sys.stderr)
+        return None
     return live
 
 def fetch_live_security_groups(region: str) -> dict:
     ec2 = boto3.client("ec2", region_name=region)
     live = {}
-    paginator = ec2.get_paginator("describe_security_groups")
-    
     try:
+        paginator = ec2.get_paginator("describe_security_groups")
         for page in paginator.paginate():
             for sg in page["SecurityGroups"]:
                 sg_id = sg["GroupId"]
@@ -113,14 +118,15 @@ def fetch_live_security_groups(region: str) -> dict:
                     },
                 }
     except Exception as e:
-        pass
+        print(f"Failed to fetch aws_security_group: {e}", file=sys.stderr)
+        return None
     return live
 
-def fetch_live_rds_instances(region: str = "ap-south-1") -> dict:
+def fetch_live_rds_instances(region: str) -> dict:
     rds = boto3.client("rds", region_name=region)
     live = {}
-    paginator = rds.get_paginator("describe_db_instances")
     try:
+        paginator = rds.get_paginator("describe_db_instances")
         for page in paginator.paginate():
             for db in page["DBInstances"]:
                 db_id = db.get("DbiResourceId") 
@@ -140,14 +146,15 @@ def fetch_live_rds_instances(region: str = "ap-south-1") -> dict:
                     },
                 }
     except Exception as e:
-        pass
+        print(f"Failed to fetch aws_db_instance: {e}", file=sys.stderr)
+        return None
     return live
 
-def fetch_live_lambda_functions(region: str = "ap-south-1") -> dict:
+def fetch_live_lambda_functions(region: str) -> dict:
     lambda_client = boto3.client("lambda", region_name=region)
     live = {}
-    paginator = lambda_client.get_paginator("list_functions")
     try:
+        paginator = lambda_client.get_paginator("list_functions")
         for page in paginator.paginate():
             for func in page["Functions"]:
                 func_name = func["FunctionName"]
@@ -165,10 +172,11 @@ def fetch_live_lambda_functions(region: str = "ap-south-1") -> dict:
                     },
                 }
     except Exception as e:
-        pass
+        print(f"Failed to fetch aws_lambda_function: {e}", file=sys.stderr)
+        return None
     return live
 
-def fetch_live_iam_roles(region: str = "ap-south-1") -> dict:
+def fetch_live_iam_roles(region: str) -> dict:
     iam = boto3.client("iam", region_name=region)
     live = {}
     try:
@@ -178,17 +186,23 @@ def fetch_live_iam_roles(region: str = "ap-south-1") -> dict:
                 role_name = role["RoleName"]
                 if role_name.startswith("AWSServiceRoleFor") or role.get("Path", "").startswith("/aws-service-role/"):
                     continue
+                
+                policies = iam.list_attached_role_policies(RoleName=role_name)
+                attached_policies = [p["PolicyArn"] for p in policies.get("AttachedPolicies", [])]
+                
                 live[role_name] = {
                     "type": "aws_iam_role",
                     "name": role_name,
                     "attributes": {
                         "id": role_name,
                         "name": role_name,
-                        "arn": role["Arn"]
+                        "arn": role["Arn"],
+                        "attached_policies": attached_policies
                     }
                 }
     except Exception as e:
-        pass
+        print(f"Failed to fetch aws_iam_role: {e}", file=sys.stderr)
+        return None
     return live
 
 def get_resource_cost(resource_id: str) -> float:
@@ -211,7 +225,6 @@ def get_resource_cost(resource_id: str) -> float:
         )
         
         usd_cost = float(response["ResultsByTime"][0]["Total"]["UnblendedCost"]["Amount"])
-        inr_cost = round(usd_cost * 83.5, 2)
-        return inr_cost
+        return usd_cost
     except Exception:
         return 0.0
