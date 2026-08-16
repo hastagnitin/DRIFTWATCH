@@ -6,6 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "driftwatch-cli"
 version = "3.0.0"
 description = "CLI tool that detects Terraform infrastructure drift against live AWS, explains it with AI, and guides remediation."
+authors = [
+    {name = "Nitin Gupta"}
+]
 requires-python = ">=3.10"
 dependencies = [
     "boto3",
@@ -13,8 +16,13 @@ dependencies = [
     "groq",
     "python-telegram-bot",
     "psycopg2-binary",
-    "requests"
+    "requests",
+    "python-dotenv"
 ]
+
+[project.urls]
+Homepage = "https://github.com/hastagnitin/driftwatch"
+Repository = "https://github.com/hastagnitin/driftwatch"
 
 [project.scripts]
 driftwatch = "driftwatch.cli:app"
