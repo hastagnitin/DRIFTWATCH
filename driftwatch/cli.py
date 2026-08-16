@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from drift_engine.core import detect_drift, get_severity, get_resource_cost
+from drift_engine.core import detect_drift, get_severity
+from drift_engine.aws_client import get_resource_cost
 from drift_engine.explain import get_drift_explanation
 from drift_engine.models import DriftType
 from drift_engine.notifications import process_alerts
