@@ -5,14 +5,25 @@ import psycopg2
 def save_drift_to_db(drift_results: list):
     if not drift_results:
         return
+
+    db_user = os.environ.get("DB_USER")
+    db_password = os.environ.get("DB_PASSWORD")
+    db_name = os.environ.get("DB_NAME", "driftwatch")
+    db_host = os.environ.get("DB_HOST", "localhost")
+    db_port = os.environ.get("DB_PORT", "5432")
+
+    # Security Fix: Check if credentials exist before connecting
+    if not db_user or not db_password:
+        print("⚠️ DB_USER or DB_PASSWORD not found in environment. Skipping database save.")
+        return
         
     try:
         conn = psycopg2.connect(
-            dbname=os.environ.get("DB_NAME", "driftwatch"),
-            user=os.environ.get("DB_USER", "admin"),
-            password=os.environ.get("DB_PASSWORD", "admin"),
-            host=os.environ.get("DB_HOST", "localhost"),
-            port=os.environ.get("DB_PORT", "5432")
+            dbname=db_name,
+            user=db_user,
+            password=db_password,
+            host=db_host,
+            port=db_port
         )
         cursor = conn.cursor()
 
