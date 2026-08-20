@@ -188,7 +188,9 @@ def fetch_live_iam_roles(region: str) -> dict:
                     continue
                 
                 policies = iam.list_attached_role_policies(RoleName=role_name)
-                attached_policies = [p["PolicyArn"] for p in policies.get("AttachedPolicies", [])]
+                attached_policies = sorted(
+                    p["PolicyArn"] for p in policies.get("AttachedPolicies", [])
+                )
                 
                 live[role_name] = {
                     "type": "aws_iam_role",
@@ -196,6 +198,7 @@ def fetch_live_iam_roles(region: str) -> dict:
                     "attributes": {
                         "id": role_name,
                         "name": role_name,
+                        "path": role.get("Path", "/"),
                         "arn": role["Arn"],
                         "attached_policies": attached_policies
                     }
