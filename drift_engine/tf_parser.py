@@ -35,6 +35,7 @@ def load_terraform_state(state_path: str) -> dict:
                     if "attached_policies" not in resources[role_name]["attributes"]:
                         resources[role_name]["attributes"]["attached_policies"] = []
                     resources[role_name]["attributes"]["attached_policies"].append(policy_arn)
+                    resources[role_name]["attributes"]["attached_policies"].sort()
                 continue
 
             resource_id = attrs.get("id")
@@ -56,7 +57,9 @@ def load_terraform_state(state_path: str) -> dict:
             if resource_id:
                 if resource_id in resources and r_type == "aws_iam_role":
                     existing_policies = resources[resource_id]["attributes"].get("attached_policies", [])
-                    attrs["attached_policies"] = list(set(attrs.get("attached_policies", []) + existing_policies))
+                    attrs["attached_policies"] = sorted(set(
+                        attrs.get("attached_policies", []) + existing_policies
+                    ))
                     
                 resources[resource_id] = {
                     "type": r_type, 
