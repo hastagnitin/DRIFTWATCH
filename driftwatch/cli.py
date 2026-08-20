@@ -72,7 +72,7 @@ def scan(
                 cost = "{:,.2f}".format(get_resource_cost(r.resource_id))
                 inst_type = r.live_attributes.get("instance_type", "unknown")
                 typer.echo(f"  Type: {inst_type} (created manually in console)")
-                typer.echo(f"  Severity: {severity} | Cost: +Rs.{cost}/month (untracked)")
+                typer.echo(f"  Severity: {severity} | Cost: +${cost}/month (untracked)")
                 ai_text = get_drift_explanation(r.resource_type, r.resource_id, r.live_attributes, r.drift_type.value)
             elif r.diff:
                 typer.echo(f"  Severity: {severity}")
@@ -123,6 +123,8 @@ def explain(
     if not actual_region:
         typer.secho("No AWS region found. Pass --region or set AWS_DEFAULT_REGION.", fg=typer.colors.RED)
         raise typer.Exit(1)
+
+    os.environ["AWS_DEFAULT_REGION"] = actual_region
         
     typer.echo(f"Fetching current drift state for {resource_id}...")
     results, _ = detect_drift(state, actual_region)
@@ -151,6 +153,8 @@ def remediate(
     if not actual_region:
         typer.secho("No AWS region found. Pass --region or set AWS_DEFAULT_REGION.", fg=typer.colors.RED)
         raise typer.Exit(1)
+
+    os.environ["AWS_DEFAULT_REGION"] = actual_region
 
     results, _ = detect_drift(state, actual_region)
     match = [r for r in results if r.resource_id == resource_id]
