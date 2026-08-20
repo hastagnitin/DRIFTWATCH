@@ -6,6 +6,25 @@ import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+
+def _format_drift_results(drift_results: list, include_ai: bool = True) -> list:
+    lines = []
+    for result in drift_results:
+        lines.append(
+            f"[{result.drift_type.value}] {result.resource_type}: "
+            f"{result.resource_name} ({result.resource_id})"
+        )
+        if result.diff:
+            for attr, values in result.diff.items():
+                lines.append(
+                    f"    - {attr}: Expected '{values['terraform']}', "
+                    f"Found '{values['live']}'"
+                )
+        if include_ai and getattr(result, "ai_analysis", ""):
+            lines.append(f"    - AI Analysis: {result.ai_analysis}")
+        lines.append("")
+    return lines
+
 def send_telegram_alert(message: str):
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
@@ -21,7 +40,7 @@ def send_telegram_alert(message: str):
     }
     
     try:
-        response = requests.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=15)
         response.raise_for_status()
         print("Telegram alert sent successfully.")
     except Exception as e:
@@ -32,15 +51,7 @@ def send_slack_alert(webhook_url: str, drift_results: list):
         return
 
     message_lines = ["*DriftWatch Alert: Infrastructure Drift Detected!*"]
-    for r in drift_results:
-        line = f"• [{r.drift_type.value}] {r.resource_type}: {r.resource_name} ({r.resource_id})"
-        message_lines.append(line)
-        if r.diff:
-            for attr, vals in r.diff.items():
-                message_lines.append(f"    - {attr}: Expected '{vals['terraform']}', Found '{vals['live']}'")
-        if hasattr(r, 'ai_analysis') and r.ai_analysis:
-            message_lines.append(f"    - AI Analysis: {r.ai_analysis}")
-            message_lines.append("")
+    message_lines.extend(_format_drift_results(drift_results))
 
     payload = {"text": "\n".join(message_lines)}
     req = urllib.request.Request(
@@ -50,7 +61,7 @@ def send_slack_alert(webhook_url: str, drift_results: list):
     )
     
     try:
-        urllib.request.urlopen(req)
+        urllib.request.urlopen(req, timeout=15)
         print("Slack alert sent successfully.")
     except Exception as e:
         print(f"Failed to send Slack alert: {e}")
@@ -65,21 +76,12 @@ def send_email_alert(smtp_server: str, smtp_port: int, sender_email: str, sender
     msg['Subject'] = "DriftWatch Alert: Infrastructure Drift Detected"
 
     body_lines = ["DriftWatch has detected changes in your infrastructure:\n"]
-    for r in drift_results:
-        line = f"[{r.drift_type.value}] {r.resource_type}: {r.resource_name} ({r.resource_id})"
-        body_lines.append(line)
-        if r.diff:
-            for attr, vals in r.diff.items():
-                body_lines.append(f"    - {attr}: Expected '{vals['terraform']}', Found '{vals['live']}'")
-        if hasattr(r, 'ai_analysis') and r.ai_analysis:
-            body_lines.append(f"\n    AI Analysis:\n    {r.ai_analysis}\n")
-        else:
-            body_lines.append("")
+    body_lines.extend(_format_drift_results(drift_results))
 
     msg.attach(MIMEText("\n".join(body_lines), 'plain'))
 
     try:
-        server = smtplib.SMTP(smtp_server, smtp_port)
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=15)
         server.starttls()
         server.login(sender_email, sender_password)
         server.send_message(msg)
@@ -109,9 +111,7 @@ def process_alerts(drift_results: list):
 
     if bot_token and chat_id:
         message_lines = ["DriftWatch Alert Summary:"]
-        for r in drift_results:
-            line = f"[{r.drift_type.value}] {r.resource_type}: {r.resource_name} ({r.resource_id})"
-            message_lines.append(line)
+        message_lines.extend(_format_drift_results(drift_results, include_ai=False))
             
         telegram_message = "\n".join(message_lines)
         
