@@ -1,11 +1,8 @@
 import os
-import json
-import urllib.request
 import smtplib
 import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-
 
 def _format_drift_results(drift_results: list, include_ai: bool = True) -> list:
     lines = []
@@ -54,14 +51,10 @@ def send_slack_alert(webhook_url: str, drift_results: list):
     message_lines.extend(_format_drift_results(drift_results))
 
     payload = {"text": "\n".join(message_lines)}
-    req = urllib.request.Request(
-        webhook_url, 
-        data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json'}
-    )
     
     try:
-        urllib.request.urlopen(req, timeout=15)
+        response = requests.post(webhook_url, json=payload, timeout=15)
+        response.raise_for_status()
         print("Slack alert sent successfully.")
     except Exception as e:
         print(f"Failed to send Slack alert: {e}")
