@@ -10,11 +10,12 @@ RUN apt-get update && apt-get install -y wget unzip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
+COPY pyproject.toml requirements.txt ./
 COPY drift_engine/ drift_engine/
+COPY driftwatch/ driftwatch/
 COPY terraform/ terraform/
-
 COPY run.sh .
-RUN chmod +x run.sh
+
+RUN chmod +x run.sh && pip install --no-cache-dir -e .
+
+CMD ["./run.sh"]

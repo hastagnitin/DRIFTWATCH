@@ -15,6 +15,7 @@ services:
   app:
     build: .
     container_name: driftwatch-app
+    command: ["./run.sh"]
     depends_on:
       - db
     stdin_open: true
