@@ -15,8 +15,10 @@ spec:
             image: driftwatch:latest
             imagePullPolicy: Never
             command:
-            - "python"
-            - "/app/drift_engine/core.py"
+            - "driftwatch"
+            - "scan"
+            - "--region"
+            - "ap-south-1"
             envFrom:
             - secretRef:
                 name: driftwatch-env

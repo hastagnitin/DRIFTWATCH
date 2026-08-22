@@ -7,7 +7,7 @@ terraform {
 }
 
 provider "aws" {
-  region = "ap-south-1" 
+  region = var.aws_region
 }
 
 resource "aws_instance" "web_servers" {
@@ -60,7 +60,7 @@ resource "aws_db_instance" "driftwatch_rds" {
   engine_version       = "8.0"
   instance_class       = "db.t3.micro"
   username             = "admin"
-  password             = "DriftWatch"
+  password             = var.db_password
   skip_final_snapshot  = true
   publicly_accessible  = false
 }
