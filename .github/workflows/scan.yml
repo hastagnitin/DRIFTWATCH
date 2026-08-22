@@ -18,22 +18,22 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install DriftWatch
+      - name: Install Local Source and Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install driftwatch-cli
+          pip install -e .[dev]
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Fetch Terraform State from S3
         run: |
           mkdir -p terraform
-          aws s3 cp s3://driftwatch-state-nitin-007/terraform.tfstate terraform/terraform.tfstate
+          aws s3 cp s3://${{ secrets.TF_STATE_BUCKET_NAME }}/terraform.tfstate terraform/terraform.tfstate
 
       - name: Run DriftWatch Scan
         env:
@@ -41,4 +41,4 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          driftwatch scan --region ap-south-1
+          driftwatch scan --region ${{ secrets.AWS_REGION }}
