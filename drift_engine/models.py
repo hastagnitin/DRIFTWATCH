@@ -17,26 +17,49 @@ class DriftResult:
     diff: dict = field(default_factory=dict)
     ai_analysis: str = ""
 
-IGNORED_ATTRIBUTES = {
-    "aws_instance": {
-        "private_ip", "public_ip", "network_interface_id",
-        "instance_state", "private_dns", "public_dns", "tags_all"
-    },
-    "aws_security_group": {"owner_id"},
-    "aws_s3_bucket": {
-        "arn", "bucket_domain_name", "bucket_regional_domain_name",
-        "hosted_zone_id", "region", "request_payer", "tags_all"
-    },
-    "aws_db_instance": {"engine_version"}
-}
-
 MONITORED_ATTRIBUTES = {
-    "aws_instance": {"instance_type", "ami"},
+    "aws_instance": {"instance_type", "ami", "tags", "vpc_security_group_ids"},
     "aws_security_group": {"ingress", "egress", "description"},
     "aws_s3_bucket": {"bucket", "tags"},
-    "aws_db_instance": {"instance_class", "engine", "allocated_storage"},
-    "aws_lambda_function": {"runtime", "handler"},
+    "aws_db_instance": {"instance_class", "engine", "allocated_storage", "engine_version", "multi_az"},
+    "aws_lambda_function": {"runtime", "handler", "memory_size", "timeout", "role"},
     "aws_iam_role": {"attached_policies", "path"}
 }
 
 MONITORED_RESOURCES = list(MONITORED_ATTRIBUTES.keys())
+
+ATTRIBUTE_SEVERITY = {
+    "aws_security_group": {
+        "ingress": "CRITICAL",
+        "egress": "CRITICAL",
+        "description": "LOW"
+    },
+    "aws_instance": {
+        "instance_type": "HIGH",
+        "ami": "MEDIUM",
+        "vpc_security_group_ids": "HIGH",
+        "tags": "LOW"
+    },
+    "aws_iam_role": {
+        "attached_policies": "CRITICAL",
+        "path": "LOW"
+    },
+    "aws_db_instance": {
+        "instance_class": "HIGH",
+        "allocated_storage": "MEDIUM",
+        "engine": "HIGH",
+        "engine_version": "MEDIUM",
+        "multi_az": "HIGH"
+    },
+    "aws_s3_bucket": {
+        "bucket": "HIGH",
+        "tags": "LOW"
+    },
+    "aws_lambda_function": {
+        "runtime": "HIGH",
+        "handler": "HIGH",
+        "memory_size": "MEDIUM",
+        "timeout": "MEDIUM",
+        "role": "HIGH"
+    }
+}

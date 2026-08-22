@@ -1,11 +1,22 @@
 import os
-from drift_engine.models import DriftResult, DriftType, MONITORED_RESOURCES, MONITORED_ATTRIBUTES, IGNORED_ATTRIBUTES
+import sys
+from drift_engine.models import (
+    DriftResult,
+    DriftType,
+    MONITORED_ATTRIBUTES,
+    ATTRIBUTE_SEVERITY
+)
 from drift_engine.tf_parser import load_terraform_state
 from drift_engine.aws_client import (
-    fetch_live_ec2_instances, fetch_live_s3_buckets,
-    fetch_live_security_groups, fetch_live_rds_instances,
-    fetch_live_lambda_functions, fetch_live_iam_roles
+    fetch_live_ec2_instances,
+    fetch_live_s3_buckets,
+    fetch_live_security_groups,
+    fetch_live_rds_instances,
+    fetch_live_lambda_functions,
+    fetch_live_iam_roles
 )
+
+SEVERITY_LEVELS = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 
 def normalize_sg_rules(rules) -> list:
     normalized = []
@@ -147,9 +158,33 @@ def detect_drift(tf_state_path: str, region: str):
                 
     return results, total_scanned
 
-def get_severity(r_type, d_type):
+def get_severity(r_type: str, d_type: DriftType, diff: dict = None) -> str:
+    if d_type == DriftType.MISSING or d_type == DriftType.UNMANAGED:
+        if r_type in ["aws_security_group", "aws_iam_role"]:
+            return "CRITICAL"
+        return "HIGH"
+        
+    if diff:
+        type_severity_map = ATTRIBUTE_SEVERITY.get(r_type, {})
+        highest_sev = "LOW"
+        for attr in diff.keys():
+            attr_sev = type_severity_map.get(attr, "MEDIUM")
+            if SEVERITY_LEVELS.get(attr_sev, 1) > SEVERITY_LEVELS.get(highest_sev, 0):
+                highest_sev = attr_sev
+        return highest_sev
+
     if r_type in ["aws_security_group", "aws_iam_role"]:
         return "CRITICAL"
-    if d_type == DriftType.MISSING or r_type == "aws_instance":
+    if r_type == "aws_instance":
         return "HIGH"
     return "MEDIUM"
+
+if __name__ == "__main__":
+    state_file = os.environ.get("TF_STATE_PATH", "terraform/terraform.tfstate")
+    scan_region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
+    print(f"Executing DriftWatch Engine on {state_file} ({scan_region})...")
+    drift_items, scanned = detect_drift(state_file, scan_region)
+    print(f"Scanned {scanned} resources. Found {len(drift_items)} drift items.")
+    for item in drift_items:
+        sev = get_severity(item.resource_type, item.drift_type, item.diff)
+        print(f" - [{item.drift_type.value}] {item.resource_type} ({item.resource_id}): Severity={sev}")
