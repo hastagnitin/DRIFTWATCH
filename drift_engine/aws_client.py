@@ -7,29 +7,30 @@ def fetch_live_ec2_instances(region: str) -> dict:
     live = {}
     try:
         paginator = ec2.get_paginator("describe_instances")
-        
         for page in paginator.paginate():
-            for reservation in page["Reservations"]:
-                for instance in reservation["Instances"]:
-                    if instance["State"]["Name"] == "terminated":
+            for reservation in page.get("Reservations", []):
+                for instance in reservation.get("Instances", []):
+                    if instance.get("State", {}).get("Name") == "terminated":
                         continue
                     
                     tags_list = instance.get("Tags", [])
-                    tags_dict = {t["Key"]: t["Value"] for t in tags_list}
+                    tags_dict = {t["Key"]: t["Value"] for t in tags_list if "Key" in t and "Value" in t}
                     name = tags_dict.get("Name", "Unknown")
                     
                     sg_ids = []
                     for sg in instance.get("SecurityGroups", []):
-                        sg_ids.append(sg.get("GroupId"))
+                        if "GroupId" in sg:
+                            sg_ids.append(sg.get("GroupId"))
                     sg_ids.sort()
                     
-                    live[instance["InstanceId"]] = {
+                    instance_id = instance["InstanceId"]
+                    live[instance_id] = {
                         "type": "aws_instance",
                         "name": name,
                         "attributes": {
-                            "id": instance["InstanceId"],
-                            "instance_type": instance["InstanceType"],
-                            "ami": instance["ImageId"],
+                            "id": instance_id,
+                            "instance_type": instance.get("InstanceType"),
+                            "ami": instance.get("ImageId"),
                             "tags": tags_dict,
                             "vpc_security_group_ids": sg_ids
                         },
@@ -49,7 +50,7 @@ def fetch_live_s3_buckets(region: str) -> dict:
             try:
                 tags_response = s3.get_bucket_tagging(Bucket=bucket_name)
                 tags_list = tags_response.get("TagSet", [])
-                tags_dict = {t["Key"]: t["Value"] for t in tags_list}
+                tags_dict = {t["Key"]: t["Value"] for t in tags_list if "Key" in t and "Value" in t}
                 name = tags_dict.get("Name", bucket_name)
             except Exception:
                 tags_dict = {}
@@ -75,12 +76,12 @@ def fetch_live_security_groups(region: str) -> dict:
     try:
         paginator = ec2.get_paginator("describe_security_groups")
         for page in paginator.paginate():
-            for sg in page["SecurityGroups"]:
+            for sg in page.get("SecurityGroups", []):
                 sg_id = sg["GroupId"]
-                sg_name = sg["GroupName"]
+                sg_name = sg.get("GroupName", "")
                 
                 tags_list = sg.get("Tags", [])
-                tags_dict = {t["Key"]: t["Value"] for t in tags_list}
+                tags_dict = {t["Key"]: t["Value"] for t in tags_list if "Key" in t and "Value" in t}
                 name_tag = tags_dict.get("Name", sg_name)
                 
                 ingress_rules = []
@@ -128,16 +129,16 @@ def fetch_live_rds_instances(region: str) -> dict:
     try:
         paginator = rds.get_paginator("describe_db_instances")
         for page in paginator.paginate():
-            for db in page["DBInstances"]:
-                db_id = db.get("DbiResourceId") 
-                db_name = db["DBInstanceIdentifier"]
+            for db in page.get("DBInstances", []):
+                db_id = db.get("DBInstanceIdentifier")
                 if not db_id:
                     continue
                 live[db_id] = {
                     "type": "aws_db_instance",
-                    "name": db_name,
+                    "name": db_id,
                     "attributes": {
                         "id": db_id,
+                        "identifier": db_id,
                         "allocated_storage": db.get("AllocatedStorage"),
                         "engine": db.get("Engine"),
                         "engine_version": db.get("EngineVersion"),
@@ -156,8 +157,10 @@ def fetch_live_lambda_functions(region: str) -> dict:
     try:
         paginator = lambda_client.get_paginator("list_functions")
         for page in paginator.paginate():
-            for func in page["Functions"]:
-                func_name = func["FunctionName"]
+            for func in page.get("Functions", []):
+                func_name = func.get("FunctionName")
+                if not func_name:
+                    continue
                 live[func_name] = {
                     "type": "aws_lambda_function",
                     "name": func_name,
@@ -182,15 +185,20 @@ def fetch_live_iam_roles(region: str) -> dict:
     try:
         paginator = iam.get_paginator("list_roles")
         for page in paginator.paginate():
-            for role in page["Roles"]:
-                role_name = role["RoleName"]
+            for role in page.get("Roles", []):
+                role_name = role.get("RoleName")
+                if not role_name:
+                    continue
                 if role_name.startswith("AWSServiceRoleFor") or role.get("Path", "").startswith("/aws-service-role/"):
                     continue
                 
-                policies = iam.list_attached_role_policies(RoleName=role_name)
-                attached_policies = sorted(
-                    p["PolicyArn"] for p in policies.get("AttachedPolicies", [])
-                )
+                try:
+                    policies = iam.list_attached_role_policies(RoleName=role_name)
+                    attached_policies = sorted(
+                        p["PolicyArn"] for p in policies.get("AttachedPolicies", []) if "PolicyArn" in p
+                    )
+                except Exception:
+                    attached_policies = []
                 
                 live[role_name] = {
                     "type": "aws_iam_role",
@@ -199,7 +207,7 @@ def fetch_live_iam_roles(region: str) -> dict:
                         "id": role_name,
                         "name": role_name,
                         "path": role.get("Path", "/"),
-                        "arn": role["Arn"],
+                        "arn": role.get("Arn", ""),
                         "attached_policies": attached_policies
                     }
                 }
