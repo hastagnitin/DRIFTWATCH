@@ -5,11 +5,9 @@ def load_terraform_state(state_path: str) -> dict:
         with open(state_path) as f:
             state = json.load(f)
     except FileNotFoundError:
-        print(f"Error: Terraform state file not found at '{state_path}'")
-        return {}
-    except json.JSONDecodeError:
-        print(f"Error: Terraform state file at '{state_path}' is corrupted or invalid JSON.")
-        return {}
+        raise FileNotFoundError(f"Terraform state file not found at '{state_path}'")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Terraform state file at '{state_path}' is corrupted or invalid JSON: {e}")
         
     resources = {}
     
