@@ -1,6 +1,5 @@
 import os
 import json
-import psycopg2
 
 def save_drift_to_db(drift_results: list):
     if not drift_results:
@@ -15,6 +14,12 @@ def save_drift_to_db(drift_results: list):
     # Security Fix: Check if credentials exist before connecting
     if not db_user or not db_password:
         print("⚠️ DB_USER or DB_PASSWORD not found in environment. Skipping database save.")
+        return
+
+    try:
+        import psycopg2
+    except ImportError:
+        print("⚠️ PostgreSQL credentials provided, but 'psycopg2' is not installed. Run 'pip install driftwatch-cli[postgres]' to enable database logging.")
         return
         
     try:
