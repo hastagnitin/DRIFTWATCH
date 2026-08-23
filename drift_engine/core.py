@@ -67,43 +67,43 @@ def compare_attributes(tf, live, r_type) -> dict:
             
     return diff
 
-def detect_drift(tf_state_path: str, region: str):
+def detect_drift(tf_state_path: str, region: str, profile: str = None):
     tf_resources = load_terraform_state(tf_state_path)
-    
-    if not tf_resources:
-        return [], 0
 
     failed_types = set()
 
-    live_ec2 = fetch_live_ec2_instances(region)
+    live_ec2 = fetch_live_ec2_instances(region, profile=profile)
     if live_ec2 is None:
         failed_types.add("aws_instance")
         live_ec2 = {}
 
-    live_s3 = fetch_live_s3_buckets(region)
+    live_s3 = fetch_live_s3_buckets(region, profile=profile)
     if live_s3 is None:
         failed_types.add("aws_s3_bucket")
         live_s3 = {}
 
-    live_sg = fetch_live_security_groups(region)
+    live_sg = fetch_live_security_groups(region, profile=profile)
     if live_sg is None:
         failed_types.add("aws_security_group")
         live_sg = {}
 
-    live_rds = fetch_live_rds_instances(region)
+    live_rds = fetch_live_rds_instances(region, profile=profile)
     if live_rds is None:
         failed_types.add("aws_db_instance")
         live_rds = {}
 
-    live_lambda = fetch_live_lambda_functions(region)
+    live_lambda = fetch_live_lambda_functions(region, profile=profile)
     if live_lambda is None:
         failed_types.add("aws_lambda_function")
         live_lambda = {}
 
-    live_iam = fetch_live_iam_roles(region)
+    live_iam = fetch_live_iam_roles(region, profile=profile)
     if live_iam is None:
         failed_types.add("aws_iam_role")
         live_iam = {}
+
+    if failed_types:
+        raise RuntimeError(f"Failed to fetch live AWS resources for: {', '.join(sorted(failed_types))}")
         
     live_resources = {**live_ec2, **live_s3, **live_sg, **live_rds, **live_lambda, **live_iam}
     
