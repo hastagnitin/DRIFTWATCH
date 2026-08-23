@@ -153,10 +153,12 @@ def test_load_terraform_state_parser(tmp_path):
     assert "test_role" in resources
 
 def test_load_terraform_state_missing_or_corrupt(tmp_path):
-    assert load_terraform_state("non_existent_file.tfstate") == {}
+    with pytest.raises(FileNotFoundError):
+        load_terraform_state("non_existent_file.tfstate")
     corrupt_file = tmp_path / "corrupt.tfstate"
     corrupt_file.write_text("invalid json")
-    assert load_terraform_state(str(corrupt_file)) == {}
+    with pytest.raises(ValueError):
+        load_terraform_state(str(corrupt_file))
 
 @mock_aws
 def test_detect_drift_full_flow(tmp_path):
