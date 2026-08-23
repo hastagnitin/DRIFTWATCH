@@ -1,9 +1,21 @@
+import os
 import sys
 import boto3
 from datetime import datetime, timedelta
 
-def fetch_live_ec2_instances(region: str) -> dict:
-    ec2 = boto3.client("ec2", region_name=region)
+def get_boto3_session(profile: str = None, region: str = None) -> boto3.Session:
+    actual_profile = profile or os.environ.get("AWS_PROFILE")
+    actual_region = region or os.environ.get("AWS_DEFAULT_REGION")
+    if actual_profile:
+        return boto3.Session(profile_name=actual_profile, region_name=actual_region)
+    return boto3.Session(region_name=actual_region)
+
+def get_boto3_client(service_name: str, profile: str = None, region: str = None):
+    session = get_boto3_session(profile=profile, region=region)
+    return session.client(service_name, region_name=region or session.region_name)
+
+def fetch_live_ec2_instances(region: str, profile: str = None) -> dict:
+    ec2 = get_boto3_client("ec2", profile=profile, region=region)
     live = {}
     try:
         paginator = ec2.get_paginator("describe_instances")
@@ -40,8 +52,8 @@ def fetch_live_ec2_instances(region: str) -> dict:
         return None
     return live
 
-def fetch_live_s3_buckets(region: str) -> dict:
-    s3 = boto3.client("s3", region_name=region)
+def fetch_live_s3_buckets(region: str, profile: str = None) -> dict:
+    s3 = get_boto3_client("s3", profile=profile, region=region)
     live = {}
     try:
         response = s3.list_buckets()
@@ -70,8 +82,8 @@ def fetch_live_s3_buckets(region: str) -> dict:
         return None
     return live
 
-def fetch_live_security_groups(region: str) -> dict:
-    ec2 = boto3.client("ec2", region_name=region)
+def fetch_live_security_groups(region: str, profile: str = None) -> dict:
+    ec2 = get_boto3_client("ec2", profile=profile, region=region)
     live = {}
     try:
         paginator = ec2.get_paginator("describe_security_groups")
@@ -123,8 +135,8 @@ def fetch_live_security_groups(region: str) -> dict:
         return None
     return live
 
-def fetch_live_rds_instances(region: str) -> dict:
-    rds = boto3.client("rds", region_name=region)
+def fetch_live_rds_instances(region: str, profile: str = None) -> dict:
+    rds = get_boto3_client("rds", profile=profile, region=region)
     live = {}
     try:
         paginator = rds.get_paginator("describe_db_instances")
@@ -151,8 +163,8 @@ def fetch_live_rds_instances(region: str) -> dict:
         return None
     return live
 
-def fetch_live_lambda_functions(region: str) -> dict:
-    lambda_client = boto3.client("lambda", region_name=region)
+def fetch_live_lambda_functions(region: str, profile: str = None) -> dict:
+    lambda_client = get_boto3_client("lambda", profile=profile, region=region)
     live = {}
     try:
         paginator = lambda_client.get_paginator("list_functions")
@@ -179,8 +191,8 @@ def fetch_live_lambda_functions(region: str) -> dict:
         return None
     return live
 
-def fetch_live_iam_roles(region: str) -> dict:
-    iam = boto3.client("iam", region_name=region)
+def fetch_live_iam_roles(region: str, profile: str = None) -> dict:
+    iam = get_boto3_client("iam", profile=profile, region=region)
     live = {}
     try:
         paginator = iam.get_paginator("list_roles")
@@ -216,9 +228,9 @@ def fetch_live_iam_roles(region: str) -> dict:
         return None
     return live
 
-def get_resource_cost(resource_id: str) -> float:
+def get_resource_cost(resource_id: str, profile: str = None) -> float | None:
     try:
-        client = boto3.client("ce", region_name="us-east-1")
+        client = get_boto3_client("ce", profile=profile, region="us-east-1")
         
         end_date = datetime.today().strftime("%Y-%m-%d")
         start_date = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
@@ -235,7 +247,10 @@ def get_resource_cost(resource_id: str) -> float:
             }
         )
         
-        usd_cost = float(response["ResultsByTime"][0]["Total"]["UnblendedCost"]["Amount"])
+        results_by_time = response.get("ResultsByTime", [])
+        if not results_by_time:
+            return None
+        usd_cost = float(results_by_time[0]["Total"]["UnblendedCost"]["Amount"])
         return usd_cost
     except Exception:
-        return 0.0
+        return None
