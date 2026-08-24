@@ -38,9 +38,15 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Fetch Terraform State from S3
+        env:
+          TF_STATE_BUCKET_NAME: ${{ secrets.TF_STATE_BUCKET_NAME }}
         run: |
+          if [ -z "$TF_STATE_BUCKET_NAME" ]; then
+            echo "Error: TF_STATE_BUCKET_NAME secret is not set"
+            exit 1
+          fi
           mkdir -p terraform
-          aws s3 cp s3://${{ secrets.TF_STATE_BUCKET_NAME }}/terraform.tfstate terraform/terraform.tfstate
+          aws s3 cp "s3://${TF_STATE_BUCKET_NAME}/terraform.tfstate" terraform/terraform.tfstate
 
       - name: Enforce Drift Zero-Tolerance Policy
         env:
