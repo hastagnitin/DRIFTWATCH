@@ -62,38 +62,30 @@ def test_lambda_diff_detected():
     assert "runtime" in diff
 
 def test_data_driven_severity_scoring():
-    # SG ingress change -> CRITICAL
     sg_diff_crit = {"ingress": {"terraform": [], "live": []}}
     assert get_severity("aws_security_group", DriftType.MODIFIED, sg_diff_crit) == "CRITICAL"
 
-    # SG description change only -> LOW
     sg_diff_low = {"description": {"terraform": "A", "live": "B"}}
     assert get_severity("aws_security_group", DriftType.MODIFIED, sg_diff_low) == "LOW"
 
-    # EC2 instance_type change -> HIGH
     ec2_diff_high = {"instance_type": {"terraform": "t3.micro", "live": "t3.large"}}
     assert get_severity("aws_instance", DriftType.MODIFIED, ec2_diff_high) == "HIGH"
 
-    # EC2 ami change -> MEDIUM
     ec2_diff_med = {"ami": {"terraform": "ami-1", "live": "ami-2"}}
     assert get_severity("aws_instance", DriftType.MODIFIED, ec2_diff_med) == "MEDIUM"
 
-    # EC2 tags change -> LOW
     ec2_diff_low = {"tags": {"terraform": {}, "live": {}}}
     assert get_severity("aws_instance", DriftType.MODIFIED, ec2_diff_low) == "LOW"
 
-    # IAM role attached_policies -> CRITICAL
     iam_diff = {"attached_policies": {"terraform": [], "live": []}}
     assert get_severity("aws_iam_role", DriftType.MODIFIED, iam_diff) == "CRITICAL"
 
-    # RDS instance_class -> HIGH, allocated_storage -> MEDIUM
     rds_diff_high = {"instance_class": {"terraform": "db.t3.micro", "live": "db.t3.medium"}}
     assert get_severity("aws_db_instance", DriftType.MODIFIED, rds_diff_high) == "HIGH"
 
     rds_diff_med = {"allocated_storage": {"terraform": 20, "live": 40}}
     assert get_severity("aws_db_instance", DriftType.MODIFIED, rds_diff_med) == "MEDIUM"
 
-    # Missing & Unmanaged severities
     assert get_severity("aws_security_group", DriftType.MISSING) == "CRITICAL"
     assert get_severity("aws_instance", DriftType.MISSING) == "HIGH"
     assert get_severity("aws_security_group", DriftType.UNMANAGED) == "CRITICAL"
@@ -161,13 +153,49 @@ def test_load_terraform_state_missing_or_corrupt(tmp_path):
         load_terraform_state(str(corrupt_file))
 
 @mock_aws
+def test_detect_drift_raises_on_aws_auth_failure(tmp_path, monkeypatch):
+    """C1 regression: if any live-fetch returns None (e.g. auth failure),
+    detect_drift MUST raise RuntimeError so callers can exit non-zero.
+    It must NEVER silently return an empty list — that would look like
+    "no drift" and give a false-green CI gate.
+    """
+    state_content = {"resources": []}
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text(json.dumps(state_content))
+
+    monkeypatch.setattr("drift_engine.core.fetch_live_ec2_instances", lambda reg, profile=None: None)
+
+    with pytest.raises(RuntimeError, match="Failed to fetch live AWS resources"):
+        detect_drift(str(state_file), "ap-south-1")
+
+
+@mock_aws
+def test_detect_drift_raises_when_multiple_fetches_fail(tmp_path, monkeypatch):
+    """C1 regression: RuntimeError lists ALL failed resource types, not just the first.
+    This ensures the operator knows the full blast radius of the auth failure.
+    """
+    state_content = {"resources": []}
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text(json.dumps(state_content))
+
+    monkeypatch.setattr("drift_engine.core.fetch_live_ec2_instances", lambda reg, profile=None: None)
+    monkeypatch.setattr("drift_engine.core.fetch_live_rds_instances", lambda reg, profile=None: None)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        detect_drift(str(state_file), "ap-south-1")
+
+    error_msg = str(exc_info.value)
+    assert "aws_instance" in error_msg
+    assert "aws_db_instance" in error_msg
+
+
+@mock_aws
 def test_detect_drift_full_flow(tmp_path):
     region = "ap-south-1"
     ec2 = boto3.client("ec2", region_name=region)
     res = ec2.run_instances(ImageId="ami-0c2af51e265bd5e0e", InstanceType="t3.small", MinCount=1, MaxCount=1)
     inst_id = res["Instances"][0]["InstanceId"]
 
-    # State expects t3.micro
     state_content = {
         "resources": [
             {
