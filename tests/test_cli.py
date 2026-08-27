@@ -362,7 +362,7 @@ def test_cli_remediate_all_flag(monkeypatch, tmp_path):
 
     result = runner.invoke(app, ["remediate", "--all", "--region", "ap-south-1", "--state", str(state_file), "--apply", "--yes"])
     assert result.exit_code == 0
-    # All resources were passed to process_remediation
+  
     assert len(called) == 1
     assert len(called[0]) == 2
 
@@ -412,3 +412,82 @@ def test_cli_explain_from_scan(monkeypatch, tmp_path):
     result = runner.invoke(app, ["explain", "i-from-file", "--from-scan", str(scan_file)])
     assert result.exit_code == 0
     assert "Loaded from file" in result.stdout
+
+
+
+
+def test_cli_scan_legitimately_empty_state_exits_zero(monkeypatch, tmp_path):
+    """C1 anti-regression: a genuinely empty Terraform state with a clean AWS
+    account is a VALID result (exit 0, "No drift detected").  We must not
+    conflate "zero resources scanned" with "scan failed".
+    """
+    monkeypatch.setattr(
+        "driftwatch.cli.detect_drift",
+        lambda state, reg, profile=None: ([], 0),
+    )
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text("{}")
+
+    result = runner.invoke(app, ["scan", "--region", "ap-south-1", "--state", str(state_file)])
+    assert result.exit_code == 0, f"Expected exit 0 for clean scan, got {result.exit_code}. Output:\n{result.stdout}"
+    assert "No drift detected" in result.stdout
+
+
+def test_cli_scan_exits_nonzero_when_detect_drift_raises(monkeypatch, tmp_path):
+    """C1 regression: if detect_drift raises (e.g. AWS auth failure triggers
+    RuntimeError in core.py), the CLI scan command MUST exit non-zero.
+    Before the fix, a RuntimeError in detect_drift caused the scan to short-
+    circuit into 'no drift' because the exception swallowed the signal.
+    """
+    def _raise_auth_error(state, reg, profile=None):
+        raise RuntimeError("Failed to fetch live AWS resources for: aws_instance, aws_iam_role")
+
+    monkeypatch.setattr("driftwatch.cli.detect_drift", _raise_auth_error)
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text("{}")
+
+    result = runner.invoke(app, ["scan", "--region", "ap-south-1", "--state", str(state_file)])
+    assert result.exit_code != 0, (
+        "CRITICAL regression: scan exited 0 despite detect_drift raising. "
+        "This means a failed scan is being reported as 'No drift detected'."
+    )
+   
+    assert "Error" in result.stdout or "Failed" in result.stdout
+
+
+def test_cli_scan_json_exits_nonzero_on_scan_failure(monkeypatch, tmp_path):
+    """C1 regression (JSON output path): --output json must also exit non-zero
+    when the underlying scan raises.  Before the fix the JSON renderer was
+    never reached because the error path bypassed it, but the exit code was 0.
+    """
+    def _raise(*a, **kw):
+        raise RuntimeError("Failed to fetch live AWS resources for: aws_s3_bucket")
+
+    monkeypatch.setattr("driftwatch.cli.detect_drift", _raise)
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text("{}")
+
+    result = runner.invoke(app, ["scan", "--region", "ap-south-1", "--state", str(state_file), "--output", "json"])
+    assert result.exit_code != 0, (
+        "CRITICAL regression: JSON-mode scan exited 0 despite detect_drift raising."
+    )
+
+
+def test_cli_scan_fail_on_gate_does_not_fire_when_scan_errors(monkeypatch, tmp_path):
+    """C1 regression: --fail-on should never produce a misleading
+    'BUILD FAILED: highest severity found is LOW' when the scan itself crashed.
+    It must exit non-zero due to the scan failure, not due to the gate.
+    """
+    def _raise(*a, **kw):
+        raise RuntimeError("Failed to fetch live AWS resources for: aws_instance")
+
+    monkeypatch.setattr("driftwatch.cli.detect_drift", _raise)
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text("{}")
+
+    result = runner.invoke(app, ["scan", "--region", "ap-south-1", "--state", str(state_file), "--fail-on", "CRITICAL"])
+    
+    assert result.exit_code != 0
+    
+    assert "BUILD FAILED" not in result.stdout
+
