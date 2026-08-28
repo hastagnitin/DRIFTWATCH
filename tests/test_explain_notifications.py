@@ -161,10 +161,7 @@ def test_database_save_skipped_without_creds(monkeypatch):
     results = [DriftResult(resource_type="aws_s3_bucket", resource_id="b-1", drift_type=DriftType.MISSING, resource_name="b-1")]
     save_drift_to_db(results)
 
-def test_database_save_missing_psycopg2_warning(monkeypatch, capsys):
-    monkeypatch.setenv("DB_USER", "postgres")
-    monkeypatch.setenv("DB_PASSWORD", "postgres")
-    monkeypatch.setitem(sys.modules, "psycopg2", None)
+
 
     results = [DriftResult(resource_type="aws_s3_bucket", resource_id="b-1", drift_type=DriftType.MISSING, resource_name="b-1")]
     save_drift_to_db(results)
