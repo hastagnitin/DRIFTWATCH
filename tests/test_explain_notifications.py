@@ -12,15 +12,15 @@ from drift_engine.database import save_drift_to_db
 from drift_engine.models import DriftResult, DriftType
 
 def test_deterministic_remediation_suggestions():
-    # UNMANAGED
+    
     unmanaged_cmd = get_deterministic_remediation_suggestion("aws_s3_bucket", "extra-bucket-123", {}, "UNMANAGED")
     assert "terraform import aws_s3_bucket.extra_bucket_123 extra-bucket-123" in unmanaged_cmd
 
-    # MISSING
+   
     missing_cmd = get_deterministic_remediation_suggestion("aws_instance", "web-server-1", {}, "MISSING")
     assert "terraform apply -target=aws_instance.web_server_1" in missing_cmd
 
-    # MODIFIED
+    
     diff_data = {"instance_type": {"terraform": "t3.micro", "live": "t3.large"}}
     modified_cmd = get_deterministic_remediation_suggestion("aws_instance", "web-server-1", diff_data, "MODIFIED")
     assert "terraform apply -target=aws_instance.web_server_1" in modified_cmd
