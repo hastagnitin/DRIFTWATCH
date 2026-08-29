@@ -54,3 +54,7 @@ driftwatch = "driftwatch.cli:app"
 
 [tool.setuptools.packages.find]
 include = ["driftwatch*", "drift_engine*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
