@@ -229,9 +229,10 @@ def scan(
     fail_on: SeverityChoice = typer.Option(
         None,
         "--fail-on",
+        case_sensitive=False,
         help="Severity threshold to trigger non-zero exit code (LOW, MEDIUM, HIGH, CRITICAL)."
     ),
-    output: OutputFormat = typer.Option(OutputFormat.text, "--output", "-o", help="Output format: 'text' or 'json'."),
+    output: OutputFormat = typer.Option(OutputFormat.text, "--output", "-o", case_sensitive=False, help="Output format: 'text' or 'json'."),
     json_output: bool = typer.Option(False, "--json", help="Shorthand for --output json.")
 ):
     """Scan infrastructure against Terraform state and identify drift."""
