@@ -11,7 +11,6 @@ def save_drift_to_db(drift_results: list):
     db_host = os.environ.get("DB_HOST", "localhost")
     db_port = os.environ.get("DB_PORT", "5432")
 
-    # Security Fix: Check if credentials exist before connecting
     if not db_user or not db_password:
         print("⚠️ DB_USER or DB_PASSWORD not found in environment. Skipping database save.")
         return
