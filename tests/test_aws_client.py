@@ -4,6 +4,8 @@ import zipfile
 import io
 from moto import mock_aws
 from drift_engine.aws_client import (
+    get_boto3_session,
+    get_boto3_client,
     fetch_live_ec2_instances,
     fetch_live_s3_buckets,
     fetch_live_security_groups,
@@ -143,6 +145,20 @@ def test_fetch_live_iam_roles():
     assert live[role_name]["attributes"]["path"] == "/app/"
 
 def test_get_resource_cost_graceful_fallback():
-    """M8: get_resource_cost should return None (not raise) when the resource is not found or CE fails."""
     cost = get_resource_cost("non-existent-res")
-    assert cost is None  # None signals "unavailable" — callers display "cost: unavailable"
+    assert cost is None
+
+
+def test_get_boto3_session_with_profile(monkeypatch):
+    captured = []
+    _real_session = boto3.Session
+
+    def _spy_session(**kwargs):
+        captured.append(kwargs)
+        return _real_session(**{k: v for k, v in kwargs.items() if k != "profile_name"})
+
+    monkeypatch.setattr("boto3.Session", _spy_session)
+    session = get_boto3_session(profile="my-prod-profile", region="us-east-1")
+    assert len(captured) >= 1
+    assert captured[0].get("profile_name") == "my-prod-profile"
+    assert captured[0].get("region_name") == "us-east-1"
