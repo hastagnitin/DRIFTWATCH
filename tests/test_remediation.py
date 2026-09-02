@@ -284,35 +284,20 @@ def test_process_remediation_dispatch(monkeypatch):
 
 
 def test_confirm_action_invalid_input_then_valid(monkeypatch):
-    """C2 regression: the while-True loop in confirm_action must reject
-    invalid input gracefully and keep prompting until y/n is received.
-    If this loop is removed/broken, the function silently auto-approves or
-    raises — both are dangerous in a prod remediation context.
-    """
     responses = iter(["maybe", "sure", "YES", "y"])
     monkeypatch.setattr("builtins.input", lambda prompt: next(responses))
     result = confirm_action("restart prod database", env="production", is_disruptive=True)
-    assert result is True, "confirm_action must accept 'y' after invalid entries"
-
+    assert result is True
 
 def test_confirm_action_invalid_then_no(monkeypatch):
-    """C2 regression: same loop must also handle 'n' after invalid input."""
     responses = iter(["wat", "n"])
     monkeypatch.setattr("builtins.input", lambda prompt: next(responses))
     result = confirm_action("delete prod bucket", env="production", is_disruptive=True)
     assert result is False
 
-
 def test_confirm_action_auto_approve_bypasses_prod_prompt(monkeypatch):
-    """C2 / --yes regression: auto_approve=True must short-circuit even for
-    production environments WITHOUT ever calling input().  If input() is called,
-    it will raise in CI.  This test asserts input is never reached.
-    """
     def _should_not_be_called(prompt):
-        raise AssertionError(
-            "input() was called despite auto_approve=True — the --yes/--force "
-            "flag is broken and will hang CI pipelines."
-        )
+        raise AssertionError("input() was called despite auto_approve=True")
 
     monkeypatch.setattr("builtins.input", _should_not_be_called)
     result = confirm_action(
@@ -323,30 +308,16 @@ def test_confirm_action_auto_approve_bypasses_prod_prompt(monkeypatch):
     )
     assert result is True
 
-
 def test_confirm_action_eof_in_prod_returns_false_not_raises(monkeypatch):
-    """C2 regression: EOFError in a non-TTY context must return False cleanly,
-    never propagate a raw traceback.  This is the exact crash mode reported
-    in the QA audit when running remediate in a CI runner or cron job.
-    """
     def _raise_eof(prompt):
         raise EOFError("stdin closed")
 
     monkeypatch.setattr("builtins.input", _raise_eof)
     result = confirm_action("change prod SG", env="production", is_disruptive=True)
-    assert result is False, (
-        "C2 regression: EOFError propagated instead of being caught. "
-        "This will crash remediate --apply in any non-interactive shell."
-    )
-
+    assert result is False
 
 @mock_aws
 def test_remediate_s3_bucket_region_forwarded(monkeypatch):
-    """L5 regression: remediate_s3_bucket must use the region param, not
-    silently fall back to a hardcoded default.  If someone removes the
-    `region_name=actual_region` from the boto3.client() call, cross-region
-    bucket operations will break silently or hit wrong endpoints.
-    """
     region = "ap-south-1"
     s3 = boto3.client("s3", region_name=region)
     bucket = "l5-region-test-bucket"
@@ -368,20 +339,12 @@ def test_remediate_s3_bucket_region_forwarded(monkeypatch):
     diff_data = {"tags": {"terraform": {"ManagedBy": "Terraform"}, "live": {}}}
     remediate_s3_bucket(bucket, diff_data, "dev", region=region)
 
-    assert any(r == region for r in clients_created), (
-        f"L5 regression: boto3 S3 client was NOT created with region_name='{region}'. "
-        f"Clients created with: {clients_created}"
-    )
+    assert any(r == region for r in clients_created)
     tags = s3.get_bucket_tagging(Bucket=bucket)["TagSet"]
     assert {"Key": "ManagedBy", "Value": "Terraform"} in tags
 
-
 @mock_aws
 def test_remediate_iam_role_region_forwarded(monkeypatch):
-    """L5 regression: remediate_iam_role must pass region_name to boto3.client.
-    IAM is a global service but explicit region prevents unexpected credential-
-    chain resolution against the wrong endpoint in GovCloud / private endpoints.
-    """
     region = "ap-south-1"
     iam = boto3.client("iam", region_name=region)
     role_name = "l5-iam-test-role"
@@ -413,10 +376,8 @@ def test_remediate_iam_role_region_forwarded(monkeypatch):
     }
     remediate_iam_role(role_name, diff_data, "dev", region=region)
 
-    assert any(r == region for r in clients_created), (
-        f"L5 regression: boto3 IAM client was NOT created with region_name='{region}'. "
-        f"Clients created with: {clients_created}"
-    )
+    assert any(r == region for r in clients_created)
     attached = iam.list_attached_role_policies(RoleName=role_name)["AttachedPolicies"]
     assert any(p["PolicyArn"] == policy_arn for p in attached)
+
 
