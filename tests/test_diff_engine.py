@@ -154,11 +154,6 @@ def test_load_terraform_state_missing_or_corrupt(tmp_path):
 
 @mock_aws
 def test_detect_drift_raises_on_aws_auth_failure(tmp_path, monkeypatch):
-    """C1 regression: if any live-fetch returns None (e.g. auth failure),
-    detect_drift MUST raise RuntimeError so callers can exit non-zero.
-    It must NEVER silently return an empty list — that would look like
-    "no drift" and give a false-green CI gate.
-    """
     state_content = {"resources": []}
     state_file = tmp_path / "terraform.tfstate"
     state_file.write_text(json.dumps(state_content))
@@ -171,9 +166,6 @@ def test_detect_drift_raises_on_aws_auth_failure(tmp_path, monkeypatch):
 
 @mock_aws
 def test_detect_drift_raises_when_multiple_fetches_fail(tmp_path, monkeypatch):
-    """C1 regression: RuntimeError lists ALL failed resource types, not just the first.
-    This ensures the operator knows the full blast radius of the auth failure.
-    """
     state_content = {"resources": []}
     state_file = tmp_path / "terraform.tfstate"
     state_file.write_text(json.dumps(state_content))
