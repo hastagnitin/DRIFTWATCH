@@ -195,7 +195,7 @@ def test_cli_remediate_apply_mode(monkeypatch, tmp_path):
 
     called = []
     monkeypatch.setattr("driftwatch.cli.detect_drift", lambda state, reg, profile=None: (mock_results, 1))
-    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False: called.append((res, auto_approve)))
+    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False, profile=None: called.append((res, auto_approve)))
 
     state_file = tmp_path / "terraform.tfstate"
     state_file.write_text("{}")
@@ -218,7 +218,7 @@ def test_cli_remediate_apply_yes_flag(monkeypatch, tmp_path):
 
     called = []
     monkeypatch.setattr("driftwatch.cli.detect_drift", lambda state, reg, profile=None: (mock_results, 1))
-    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False: called.append((res, auto_approve)))
+    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False, profile=None: called.append((res, auto_approve)))
 
     state_file = tmp_path / "terraform.tfstate"
     state_file.write_text("{}")
@@ -355,7 +355,7 @@ def test_cli_remediate_all_flag(monkeypatch, tmp_path):
     ]
     called = []
     monkeypatch.setattr("driftwatch.cli.detect_drift", lambda state, reg, profile=None: (mock_results, 2))
-    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False: called.append(res))
+    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False, profile=None: called.append(res))
 
     state_file = tmp_path / "terraform.tfstate"
     state_file.write_text("{}")
@@ -499,7 +499,7 @@ def test_cli_remediate_from_scan(monkeypatch, tmp_path):
 
     called = []
     monkeypatch.setattr("driftwatch.cli.detect_drift", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("detect_drift should not be called")))
-    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False: called.append(res))
+    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False, profile=None: called.append(res))
 
     result = runner.invoke(app, ["remediate", "b-from-scan", "--from-scan", str(scan_file), "--apply", "--yes"])
     assert result.exit_code == 0
@@ -530,5 +530,186 @@ def test_cli_scan_with_unmanaged_ec2_and_cost_unavailable(monkeypatch, tmp_path)
     assert "Cost: unavailable" in result.stdout
     assert "$0.00" not in result.stdout
 
+
+# --- C1 regression: ALL six AWS fetch functions return None ---
+def test_cli_scan_all_aws_fetches_fail_exits_nonzero(tmp_path, monkeypatch):
+    """C1: When every AWS resource type fails to fetch, scan must exit non-zero
+    and NOT print 'No drift detected'."""
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text(json.dumps({"resources": []}))
+    monkeypatch.setattr("driftwatch.cli._resolve_region", lambda r, profile=None: "ap-south-1")
+    monkeypatch.setattr("drift_engine.core.fetch_live_ec2_instances", lambda reg, profile=None: None)
+    monkeypatch.setattr("drift_engine.core.fetch_live_s3_buckets", lambda reg, profile=None: None)
+    monkeypatch.setattr("drift_engine.core.fetch_live_security_groups", lambda reg, profile=None: None)
+    monkeypatch.setattr("drift_engine.core.fetch_live_rds_instances", lambda reg, profile=None: None)
+    monkeypatch.setattr("drift_engine.core.fetch_live_lambda_functions", lambda reg, profile=None: None)
+    monkeypatch.setattr("drift_engine.core.fetch_live_iam_roles", lambda reg, profile=None: None)
+
+    result = runner.invoke(app, ["scan", "--state", str(state_file), "--region", "ap-south-1"])
+    assert result.exit_code != 0, f"Expected non-zero exit when all AWS fetches fail, got {result.exit_code}"
+    assert "No drift detected" not in result.stdout
+    assert "Failed to fetch live AWS resources" in result.stdout
+
+
+# --- M1 regression: --version output matches importlib.metadata ---
+def test_cli_version_matches_package_metadata():
+    """M1: --version must print the version from package metadata, not a hardcoded string."""
+    import importlib.metadata
+    try:
+        expected = importlib.metadata.version("driftwatch-cli")
+    except Exception:
+        pytest.skip("driftwatch-cli not installed as a package in this environment")
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert expected in result.stdout
+
+
+# --- M4 regression: --profile is threaded into process_remediation ---
+def test_cli_remediate_profile_passed_to_remediation(monkeypatch, tmp_path):
+    """M4: When --profile is passed to remediate, it must be forwarded to process_remediation."""
+    mock_results = [
+        DriftResult(
+            resource_type="aws_s3_bucket",
+            resource_id="b-prof",
+            drift_type=DriftType.MODIFIED,
+            resource_name="b-prof",
+            diff={"tags": {"terraform": {}, "live": {}}}
+        )
+    ]
+    captured_kwargs = []
+    def fake_remediation(res, auto_approve=False, profile=None):
+        captured_kwargs.append({"auto_approve": auto_approve, "profile": profile})
+    monkeypatch.setattr("driftwatch.cli.detect_drift", lambda state, reg, profile=None: (mock_results, 1))
+    monkeypatch.setattr("driftwatch.cli.process_remediation", fake_remediation)
+
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text("{}")
+
+    result = runner.invoke(app, [
+        "remediate", "b-prof", "--region", "ap-south-1", "--state", str(state_file),
+        "--apply", "--yes", "--profile", "staging"
+    ])
+    assert result.exit_code == 0
+    assert len(captured_kwargs) == 1
+    assert captured_kwargs[0]["profile"] == "staging"
+
+
+# --- M6 regression: --from-scan must NOT call any fetch_live function ---
+def test_cli_explain_from_scan_does_not_call_fetch_live(monkeypatch, tmp_path):
+    """M6: When --from-scan is used, no live AWS fetching should occur."""
+    scan_data = {
+        "region": "ap-south-1",
+        "total_scanned": 1,
+        "results": [
+            {
+                "resource_type": "aws_instance",
+                "resource_id": "i-cached",
+                "resource_name": "cached-ec2",
+                "drift_type": "MODIFIED",
+                "severity": "HIGH",
+                "diff": {"instance_type": {"terraform": "t3.micro", "live": "t3.large"}},
+                "live_attributes": {},
+                "tf_attributes": {},
+                "ai_analysis": ""
+            }
+        ]
+    }
+    scan_file = tmp_path / "scan.json"
+    scan_file.write_text(json.dumps(scan_data))
+    monkeypatch.setattr("driftwatch.cli.get_drift_explanation", lambda rt, rid, diff, dt: "Cached analysis.")
+
+    # Plant bombs: if any fetch_live is called, the test explodes
+    def _boom(*a, **kw):
+        raise AssertionError("fetch_live_* should not be called when --from-scan is used")
+    monkeypatch.setattr("driftwatch.cli.detect_drift", _boom)
+
+    result = runner.invoke(app, ["explain", "i-cached", "--from-scan", str(scan_file)])
+    assert result.exit_code == 0
+    assert "Cached analysis" in result.stdout
+
+
+def test_cli_remediate_from_scan_does_not_call_fetch_live(monkeypatch, tmp_path):
+    """M6: When --from-scan is used with remediate, no live AWS fetching should occur."""
+    scan_data = {
+        "region": "ap-south-1",
+        "total_scanned": 1,
+        "results": [
+            {
+                "resource_type": "aws_s3_bucket",
+                "resource_id": "b-cached",
+                "resource_name": "b-cached",
+                "drift_type": "MODIFIED",
+                "severity": "LOW",
+                "diff": {"tags": {"terraform": {"Env": "prod"}, "live": {"Env": "dev"}}},
+                "live_attributes": {},
+                "tf_attributes": {},
+                "ai_analysis": ""
+            }
+        ]
+    }
+    scan_file = tmp_path / "scan.json"
+    scan_file.write_text(json.dumps(scan_data))
+
+    called = []
+    def _boom(*a, **kw):
+        raise AssertionError("detect_drift should not be called when --from-scan is used")
+    monkeypatch.setattr("driftwatch.cli.detect_drift", _boom)
+    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False, profile=None: called.append(res))
+
+    result = runner.invoke(app, ["remediate", "b-cached", "--from-scan", str(scan_file), "--apply", "--yes"])
+    assert result.exit_code == 0
+    assert len(called) == 1
+
+
+# --- M7 regression: batch remediation with 3 resources ---
+def test_cli_remediate_all_flag_three_resources(monkeypatch, tmp_path):
+    """M7: --all against 3 drifted resources calls process_remediation once with all 3."""
+    mock_results = [
+        DriftResult(resource_type="aws_s3_bucket", resource_id="b-1", drift_type=DriftType.MODIFIED,
+                    resource_name="b-1", diff={"tags": {"terraform": {}, "live": {}}}),
+        DriftResult(resource_type="aws_s3_bucket", resource_id="b-2", drift_type=DriftType.MODIFIED,
+                    resource_name="b-2", diff={"tags": {"terraform": {}, "live": {}}}),
+        DriftResult(resource_type="aws_s3_bucket", resource_id="b-3", drift_type=DriftType.MODIFIED,
+                    resource_name="b-3", diff={"tags": {"terraform": {}, "live": {}}}),
+    ]
+    called = []
+    monkeypatch.setattr("driftwatch.cli.detect_drift", lambda state, reg, profile=None: (mock_results, 3))
+    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False, profile=None: called.append(res))
+
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text("{}")
+
+    result = runner.invoke(app, ["remediate", "--all", "--region", "ap-south-1", "--state", str(state_file), "--apply", "--yes"])
+    assert result.exit_code == 0
+    assert len(called) == 1, f"process_remediation should be called once, was called {len(called)} times"
+    assert len(called[0]) == 3, f"Expected 3 resources in batch, got {len(called[0])}"
+
+
+# --- M8 regression: cost unavailable for MODIFIED resources ---
+def test_cli_scan_modified_resource_cost_unavailable(monkeypatch, tmp_path):
+    """M8: When Cost Explorer fails for a MODIFIED EC2/RDS/Lambda, output should say
+    'unavailable' not '$0.00' or just omit cost."""
+    mock_results = [
+        DriftResult(
+            resource_type="aws_instance",
+            resource_id="i-modified-no-ce",
+            drift_type=DriftType.MODIFIED,
+            resource_name="modified-ec2",
+            diff={"instance_type": {"terraform": "t3.micro", "live": "t3.large"}}
+        )
+    ]
+    monkeypatch.setattr("driftwatch.cli.detect_drift", lambda state, reg, profile=None: (mock_results, 1))
+    monkeypatch.setattr("driftwatch.cli.get_resource_cost", lambda rid, profile=None: None)
+    monkeypatch.setattr("driftwatch.cli.get_drift_explanation", lambda rt, rid, diff, dt: "")
+    monkeypatch.setattr("driftwatch.cli.process_alerts", lambda res: None)
+    monkeypatch.setattr("driftwatch.cli.save_drift_to_db", lambda res: None)
+
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text("{}")
+
+    result = runner.invoke(app, ["scan", "--region", "ap-south-1", "--state", str(state_file)])
+    assert result.exit_code == 0
+    assert "unavailable" in result.stdout.lower()
+    assert "$0.00" not in result.stdout
 
 
