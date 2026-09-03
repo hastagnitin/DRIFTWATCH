@@ -144,8 +144,11 @@ def _render_report(results: list, total_scanned: int, profile: str = None) -> tu
         elif r.diff:
             if cost_val is not None:
                 typer.echo(f"  Severity: {severity} | Estimated 30d Cost: ${cost_val:,.2f}")
+            elif r.resource_type in ["aws_instance", "aws_db_instance", "aws_lambda_function"]:
+                typer.echo(f"  Severity: {severity} | Estimated 30d Cost: unavailable")
             else:
                 typer.echo(f"  Severity: {severity}")
+
             for attr, vals in r.diff.items():
                 typer.echo(f"  Attribute: {attr}")
                 typer.echo(f"  Terraform: {vals.get('terraform')}")
@@ -357,7 +360,7 @@ def remediate(
             typer.secho("\n[DRY RUN] No changes made. Re-run with --apply to remediate.", fg=typer.colors.BLUE)
             return
 
-        process_remediation(matches, auto_approve=yes)
+        process_remediation(matches, auto_approve=yes, profile=profile)
     except typer.Exit:
         raise
     except Exception as e:
