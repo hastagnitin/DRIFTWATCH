@@ -2,6 +2,11 @@ import os
 import boto3
 from drift_engine.aws_client import get_boto3_client
 
+def _get_client(service_name: str, region: str = None, profile: str = None):
+    if profile:
+        return get_boto3_client(service_name, profile=profile, region=region)
+    return boto3.client(service_name, region_name=region)
+
 def get_environment_tag(tags):
     if not tags:
         return 'unknown'
@@ -40,7 +45,7 @@ def confirm_action(action_desc: str, env: str = 'unknown', is_disruptive: bool =
         print("Invalid input. Please enter 'y' or 'n'.")
 
 def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: str, env: str, auto_approve: bool = False, profile: str = None):
-    ec2 = get_boto3_client('ec2', profile=profile, region=region)
+    ec2 = _get_client('ec2', region=region, profile=profile)
     try:
         desc = ec2.describe_instances(InstanceIds=[instance_id])
         reservations = desc.get('Reservations', [])
@@ -101,7 +106,7 @@ def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: st
                 print(f"❌ Failed to restart EC2 {instance_id}: {restart_error}")
 
 def remediate_security_group(region: str, sg_id: str, diff_data: dict, env: str, auto_approve: bool = False, profile: str = None):
-    ec2 = get_boto3_client('ec2', profile=profile, region=region)
+    ec2 = _get_client('ec2', region=region, profile=profile)
     
     if "ingress" in diff_data:
         expected_ingress = diff_data["ingress"].get("terraform", [])
@@ -171,7 +176,7 @@ def remediate_security_group(region: str, sg_id: str, diff_data: dict, env: str,
 
 def remediate_s3_bucket(bucket_name: str, diff_data: dict, env: str, region: str = None, auto_approve: bool = False, profile: str = None):
     actual_region = region or os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
-    s3 = get_boto3_client('s3', profile=profile, region=actual_region)
+    s3 = _get_client('s3', region=actual_region, profile=profile)
     
     if "tags" in diff_data:
         expected_tags = diff_data["tags"].get("terraform", {})
@@ -187,7 +192,7 @@ def remediate_s3_bucket(bucket_name: str, diff_data: dict, env: str, region: str
         print(f"⚠️  Bucket name drift detected for {bucket_name}. S3 buckets cannot be renamed. Please recreate via Terraform.")
 
 def remediate_rds_instance(region: str, db_id: str, diff_data: dict, env: str, apply_immediately: bool = False, auto_approve: bool = False, profile: str = None):
-    rds = get_boto3_client('rds', profile=profile, region=region)
+    rds = _get_client('rds', region=region, profile=profile)
     updates = {}
     
     if "instance_class" in diff_data:
@@ -206,7 +211,7 @@ def remediate_rds_instance(region: str, db_id: str, diff_data: dict, env: str, a
                 print(f"❌ Failed to remediate RDS {db_id}: {e}")
 
 def remediate_lambda_function(region: str, func_name: str, diff_data: dict, env: str, auto_approve: bool = False, profile: str = None):
-    lam = get_boto3_client('lambda', profile=profile, region=region)
+    lam = _get_client('lambda', region=region, profile=profile)
     updates = {}
     
     if "runtime" in diff_data:
@@ -228,7 +233,7 @@ def remediate_lambda_function(region: str, func_name: str, diff_data: dict, env:
 
 def remediate_iam_role(role_name: str, diff_data: dict, env: str, region: str = None, auto_approve: bool = False, profile: str = None):
     actual_region = region or os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
-    iam = get_boto3_client('iam', profile=profile, region=actual_region)
+    iam = _get_client('iam', region=actual_region, profile=profile)
     expected_policies = diff_data.get("attached_policies", {}).get("terraform", [])
     live_policies = diff_data.get("attached_policies", {}).get("live", [])
 
