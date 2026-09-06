@@ -34,7 +34,10 @@ def version_callback(value: bool):
         try:
             ver = importlib.metadata.version("driftwatch-cli")
         except Exception:
-            ver = "0.1.0"
+            try:
+                from driftwatch import __version__ as ver
+            except Exception:
+                ver = "3.0.2"
         typer.echo(f"driftwatch-cli version {ver}")
         raise typer.Exit()
 
