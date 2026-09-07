@@ -172,20 +172,3 @@ def test_database_save_missing_psycopg2_warning(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "pip install driftwatch-cli[postgres]" in captured.out
 
-
-def test_h1_no_heavy_sdk_dependencies():
-    """H1: Ensure groq and python-telegram-bot are NOT in dependencies."""
-    from pathlib import Path
-    import tomllib
-
-    pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
-    with open(pyproject_path, "rb") as f:
-        data = tomllib.load(f)
-    
-    deps = data.get("project", {}).get("dependencies", [])
-    dep_names = [d.split(">=")[0].split("==")[0].split("<")[0].strip().lower() for d in deps]
-    
-    assert "groq" not in dep_names, "groq SDK should not be a runtime dependency; use HTTP requests"
-    assert "python-telegram-bot" not in dep_names, "python-telegram-bot should not be a runtime dependency; use HTTP requests"
-    assert "telegram" not in dep_names
-

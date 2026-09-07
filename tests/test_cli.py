@@ -713,3 +713,55 @@ def test_cli_scan_modified_resource_cost_unavailable(monkeypatch, tmp_path):
     assert "$0.00" not in result.stdout
 
 
+# --- C2 regression: --force and -y flag aliases ---
+def test_cli_remediate_apply_force_and_y_flags(monkeypatch, tmp_path):
+    """C2: --force and -y should both auto-approve remediation prompts."""
+    mock_results = [
+        DriftResult(
+            resource_type="aws_s3_bucket",
+            resource_id="b-force",
+            drift_type=DriftType.MODIFIED,
+            resource_name="b-force",
+            diff={"tags": {"terraform": {}, "live": {}}}
+        )
+    ]
+    called_force = []
+    called_y = []
+    monkeypatch.setattr("driftwatch.cli.detect_drift", lambda state, reg, profile=None: (mock_results, 1))
+
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text("{}")
+
+    # Test --force
+    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False, profile=None: called_force.append(auto_approve))
+    result = runner.invoke(app, ["remediate", "b-force", "--region", "ap-south-1", "--state", str(state_file), "--apply", "--force"])
+    assert result.exit_code == 0
+    assert called_force == [True]
+
+    # Test -y
+    monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False, profile=None: called_y.append(auto_approve))
+    result = runner.invoke(app, ["remediate", "b-force", "--region", "ap-south-1", "--state", str(state_file), "--apply", "-y"])
+    assert result.exit_code == 0
+    assert called_y == [True]
+
+
+# --- M1 regression: -v flag alias ---
+def test_cli_v_version_shorthand():
+    """M1: -v shorthand should output version information identically to --version."""
+    result = runner.invoke(app, ["-v"])
+    assert result.exit_code == 0
+    assert "driftwatch-cli" in result.stdout
+
+
+# --- M3 regression: Subcommand -h shorthand ---
+def test_cli_subcommands_h_help_shorthand():
+    """M3: -h should work as help shorthand on subcommands."""
+    for cmd in ["scan", "explain", "remediate"]:
+        result = runner.invoke(app, [cmd, "-h"])
+        assert result.exit_code == 0
+        assert f"{cmd} [OPTIONS]" in result.stdout
+        assert "-h" in result.stdout
+
+
+
+

@@ -1,11 +1,5 @@
 import os
 import boto3
-from drift_engine.aws_client import get_boto3_client
-
-def _get_client(service_name: str, region: str = None, profile: str = None):
-    if profile:
-        return get_boto3_client(service_name, profile=profile, region=region)
-    return boto3.client(service_name, region_name=region)
 
 def get_environment_tag(tags):
     if not tags:
@@ -44,8 +38,8 @@ def confirm_action(action_desc: str, env: str = 'unknown', is_disruptive: bool =
             return False
         print("Invalid input. Please enter 'y' or 'n'.")
 
-def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: str, env: str, auto_approve: bool = False, profile: str = None):
-    ec2 = _get_client('ec2', region=region, profile=profile)
+def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: str, env: str, auto_approve: bool = False):
+    ec2 = boto3.client('ec2', region_name=region)
     try:
         desc = ec2.describe_instances(InstanceIds=[instance_id])
         reservations = desc.get('Reservations', [])
@@ -105,8 +99,8 @@ def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: st
             except Exception as restart_error:
                 print(f"❌ Failed to restart EC2 {instance_id}: {restart_error}")
 
-def remediate_security_group(region: str, sg_id: str, diff_data: dict, env: str, auto_approve: bool = False, profile: str = None):
-    ec2 = _get_client('ec2', region=region, profile=profile)
+def remediate_security_group(region: str, sg_id: str, diff_data: dict, env: str, auto_approve: bool = False):
+    ec2 = boto3.client('ec2', region_name=region)
     
     if "ingress" in diff_data:
         expected_ingress = diff_data["ingress"].get("terraform", [])
@@ -174,9 +168,9 @@ def remediate_security_group(region: str, sg_id: str, diff_data: dict, env: str,
     if "description" in diff_data:
         print(f"⚠️  Description drift detected for {sg_id}. SG descriptions cannot be updated dynamically in AWS EC2 API. Please update via Terraform.")
 
-def remediate_s3_bucket(bucket_name: str, diff_data: dict, env: str, region: str = None, auto_approve: bool = False, profile: str = None):
+def remediate_s3_bucket(bucket_name: str, diff_data: dict, env: str, region: str = None, auto_approve: bool = False):
     actual_region = region or os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
-    s3 = _get_client('s3', region=actual_region, profile=profile)
+    s3 = boto3.client('s3', region_name=actual_region)
     
     if "tags" in diff_data:
         expected_tags = diff_data["tags"].get("terraform", {})
@@ -191,8 +185,8 @@ def remediate_s3_bucket(bucket_name: str, diff_data: dict, env: str, region: str
     if "bucket" in diff_data:
         print(f"⚠️  Bucket name drift detected for {bucket_name}. S3 buckets cannot be renamed. Please recreate via Terraform.")
 
-def remediate_rds_instance(region: str, db_id: str, diff_data: dict, env: str, apply_immediately: bool = False, auto_approve: bool = False, profile: str = None):
-    rds = _get_client('rds', region=region, profile=profile)
+def remediate_rds_instance(region: str, db_id: str, diff_data: dict, env: str, apply_immediately: bool = False, auto_approve: bool = False):
+    rds = boto3.client('rds', region_name=region)
     updates = {}
     
     if "instance_class" in diff_data:
@@ -210,8 +204,8 @@ def remediate_rds_instance(region: str, db_id: str, diff_data: dict, env: str, a
             except Exception as e:
                 print(f"❌ Failed to remediate RDS {db_id}: {e}")
 
-def remediate_lambda_function(region: str, func_name: str, diff_data: dict, env: str, auto_approve: bool = False, profile: str = None):
-    lam = _get_client('lambda', region=region, profile=profile)
+def remediate_lambda_function(region: str, func_name: str, diff_data: dict, env: str, auto_approve: bool = False):
+    lam = boto3.client('lambda', region_name=region)
     updates = {}
     
     if "runtime" in diff_data:
@@ -231,9 +225,9 @@ def remediate_lambda_function(region: str, func_name: str, diff_data: dict, env:
             except Exception as e:
                 print(f"❌ Failed to remediate Lambda {func_name}: {e}")
 
-def remediate_iam_role(role_name: str, diff_data: dict, env: str, region: str = None, auto_approve: bool = False, profile: str = None):
+def remediate_iam_role(role_name: str, diff_data: dict, env: str, region: str = None, auto_approve: bool = False):
     actual_region = region or os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
-    iam = _get_client('iam', region=actual_region, profile=profile)
+    iam = boto3.client('iam', region_name=actual_region)
     expected_policies = diff_data.get("attached_policies", {}).get("terraform", [])
     live_policies = diff_data.get("attached_policies", {}).get("live", [])
 
@@ -256,7 +250,7 @@ def remediate_iam_role(role_name: str, diff_data: dict, env: str, region: str = 
                 except Exception as e:
                     print(f"❌ Failed to attach policy to {role_name}: {e}")
 
-def process_remediation(drift_results: list, auto_approve: bool = False, profile: str = None):
+def process_remediation(drift_results: list, auto_approve: bool = False):
     region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
     for result in drift_results:
         attrs = result.live_attributes or result.tf_attributes or {}
@@ -268,22 +262,22 @@ def process_remediation(drift_results: list, auto_approve: bool = False, profile
             
             if result.resource_type == "aws_instance" and "instance_type" in result.diff:
                 expected_type = result.diff["instance_type"]["terraform"]
-                remediate_ec2_instance_type(region, result.resource_id, expected_type, env, auto_approve=auto_approve, profile=profile)
+                remediate_ec2_instance_type(region, result.resource_id, expected_type, env, auto_approve=auto_approve)
             
             elif result.resource_type == "aws_security_group":
-                remediate_security_group(region, result.resource_id, result.diff, env, auto_approve=auto_approve, profile=profile)
+                remediate_security_group(region, result.resource_id, result.diff, env, auto_approve=auto_approve)
 
             elif result.resource_type == "aws_s3_bucket":
-                remediate_s3_bucket(result.resource_id, result.diff, env, region=region, auto_approve=auto_approve, profile=profile)
+                remediate_s3_bucket(result.resource_id, result.diff, env, region=region, auto_approve=auto_approve)
                 
             elif result.resource_type == "aws_db_instance":
-                remediate_rds_instance(region, result.resource_id, result.diff, env, apply_immediately=False, auto_approve=auto_approve, profile=profile)
+                remediate_rds_instance(region, result.resource_id, result.diff, env, apply_immediately=False, auto_approve=auto_approve)
                 
             elif result.resource_type == "aws_lambda_function":
-                remediate_lambda_function(region, result.resource_id, result.diff, env, auto_approve=auto_approve, profile=profile)
+                remediate_lambda_function(region, result.resource_id, result.diff, env, auto_approve=auto_approve)
 
             elif result.resource_type == "aws_iam_role":
-                remediate_iam_role(result.resource_id, result.diff, env, region=region, auto_approve=auto_approve, profile=profile)
+                remediate_iam_role(result.resource_id, result.diff, env, region=region, auto_approve=auto_approve)
                 
         elif result.drift_type.value in ["MISSING", "UNMANAGED"]:
             print(f"\n--- {result.drift_type.value} Resource Detected: {result.resource_type} ({result.resource_id}) ---")
