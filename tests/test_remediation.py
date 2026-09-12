@@ -25,11 +25,13 @@ def test_get_environment_tag():
     assert get_environment_tag({}) == "unknown"
     assert get_environment_tag(None) == "unknown"
 
-def test_confirm_action_auto_approves_dev_staging():
-    assert confirm_action("test action", "dev", False) is True
-    assert confirm_action("test action", "staging", True) is True
+def test_confirm_action_tag_spoofing_prevented(monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+    assert confirm_action("test action", "dev", False) is False
+    assert confirm_action("test action", "staging", True) is False
 
 def test_confirm_action_auto_approve_flag():
+    assert confirm_action("test action", "dev", False, auto_approve=True) is True
     assert confirm_action("test action", "production", False, auto_approve=True) is True
 
 def test_confirm_action_manual(monkeypatch):
@@ -56,7 +58,7 @@ def test_remediate_ec2_instance_type_success():
     )
     instance_id = res["Instances"][0]["InstanceId"]
 
-    remediate_ec2_instance_type(REGION, instance_id, "t3.micro", "dev")
+    remediate_ec2_instance_type(REGION, instance_id, "t3.micro", "dev", auto_approve=True)
 
     desc = ec2.describe_instances(InstanceIds=[instance_id])
     assert desc["Reservations"][0]["Instances"][0]["InstanceType"] == "t3.micro"
@@ -101,7 +103,7 @@ def test_remediate_security_group_ingress_and_egress():
         }
     }
 
-    remediate_security_group(REGION, sg_id, diff_data, "dev")
+    remediate_security_group(REGION, sg_id, diff_data, "dev", auto_approve=True)
     sg_info = ec2.describe_security_groups(GroupIds=[sg_id])["SecurityGroups"][0]
     ingress_ports = [p["FromPort"] for p in sg_info.get("IpPermissions", []) if "FromPort" in p]
     assert 80 in ingress_ports
@@ -127,7 +129,7 @@ def test_remediate_s3_bucket_tags_and_bucket_name():
         }
     }
 
-    remediate_s3_bucket(bucket_name, diff_data, "dev")
+    remediate_s3_bucket(bucket_name, diff_data, "dev", auto_approve=True)
     tags = s3.get_bucket_tagging(Bucket=bucket_name)["TagSet"]
     tag_dict = {t["Key"]: t["Value"] for t in tags}
     assert tag_dict["ManagedBy"] == "Terraform"
@@ -150,7 +152,7 @@ def test_remediate_rds_instance():
         "allocated_storage": {"terraform": 40, "live": 20}
     }
 
-    remediate_rds_instance(REGION, db_id, diff_data, "dev", apply_immediately=False)
+    remediate_rds_instance(REGION, db_id, diff_data, "dev", apply_immediately=False, auto_approve=True)
 
 @mock_aws
 def test_remediate_lambda_function():
@@ -185,7 +187,7 @@ def test_remediate_lambda_function():
         "timeout": {"terraform": 30, "live": 10}
     }
 
-    remediate_lambda_function(REGION, fn_name, diff_data, "dev")
+    remediate_lambda_function(REGION, fn_name, diff_data, "dev", auto_approve=True)
     fn_info = lambda_client.get_function_configuration(FunctionName=fn_name)
     assert fn_info["Runtime"] == "python3.10"
     assert fn_info["Handler"] == "index.handler"
@@ -222,7 +224,7 @@ def test_remediate_iam_role():
         }
     }
 
-    remediate_iam_role(role_name, diff_data, "dev")
+    remediate_iam_role(role_name, diff_data, "dev", auto_approve=True)
     attached = iam.list_attached_role_policies(RoleName=role_name)["AttachedPolicies"]
     arns = [p["PolicyArn"] for p in attached]
     assert policy_read in arns
@@ -337,7 +339,7 @@ def test_remediate_s3_bucket_region_forwarded(monkeypatch):
     monkeypatch.setattr("boto3.client", _spy_client)
 
     diff_data = {"tags": {"terraform": {"ManagedBy": "Terraform"}, "live": {}}}
-    remediate_s3_bucket(bucket, diff_data, "dev", region=region)
+    remediate_s3_bucket(bucket, diff_data, "dev", region=region, auto_approve=True)
 
     assert any(r == region for r in clients_created)
     tags = s3.get_bucket_tagging(Bucket=bucket)["TagSet"]
@@ -374,7 +376,7 @@ def test_remediate_iam_role_region_forwarded(monkeypatch):
     diff_data = {
         "attached_policies": {"terraform": [policy_arn], "live": []}
     }
-    remediate_iam_role(role_name, diff_data, "dev", region=region)
+    remediate_iam_role(role_name, diff_data, "dev", region=region, auto_approve=True)
 
     assert any(r == region for r in clients_created)
     attached = iam.list_attached_role_policies(RoleName=role_name)["AttachedPolicies"]

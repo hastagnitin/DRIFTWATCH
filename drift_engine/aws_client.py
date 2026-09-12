@@ -24,17 +24,17 @@ def fetch_live_ec2_instances(region: str, profile: str = None) -> dict:
                 for instance in reservation.get("Instances", []):
                     if instance.get("State", {}).get("Name") == "terminated":
                         continue
-                    
+
                     tags_list = instance.get("Tags", [])
                     tags_dict = {t["Key"]: t["Value"] for t in tags_list if "Key" in t and "Value" in t}
                     name = tags_dict.get("Name", "Unknown")
-                    
+
                     sg_ids = []
                     for sg in instance.get("SecurityGroups", []):
                         if "GroupId" in sg:
                             sg_ids.append(sg.get("GroupId"))
                     sg_ids.sort()
-                    
+
                     instance_id = instance["InstanceId"]
                     live[instance_id] = {
                         "type": "aws_instance",
@@ -91,11 +91,11 @@ def fetch_live_security_groups(region: str, profile: str = None) -> dict:
             for sg in page.get("SecurityGroups", []):
                 sg_id = sg["GroupId"]
                 sg_name = sg.get("GroupName", "")
-                
+
                 tags_list = sg.get("Tags", [])
                 tags_dict = {t["Key"]: t["Value"] for t in tags_list if "Key" in t and "Value" in t}
                 name_tag = tags_dict.get("Name", sg_name)
-                
+
                 ingress_rules = []
                 for perm in sg.get("IpPermissions", []):
                     cidrs = [ip.get("CidrIp") for ip in perm.get("IpRanges", []) if ip.get("CidrIp")]
@@ -106,7 +106,7 @@ def fetch_live_security_groups(region: str, profile: str = None) -> dict:
                             "protocol": perm.get("IpProtocol", "-1"),
                             "cidr_blocks": cidrs
                         })
-                
+
                 egress_rules = []
                 for perm in sg.get("IpPermissionsEgress", []):
                     cidrs = [ip.get("CidrIp") for ip in perm.get("IpRanges", []) if ip.get("CidrIp")]
@@ -117,7 +117,7 @@ def fetch_live_security_groups(region: str, profile: str = None) -> dict:
                             "protocol": perm.get("IpProtocol", "-1"),
                             "cidr_blocks": cidrs
                         })
-                
+
                 live[sg_id] = {
                     "type": "aws_security_group",
                     "name": name_tag,
@@ -203,7 +203,7 @@ def fetch_live_iam_roles(region: str, profile: str = None) -> dict:
                     continue
                 if role_name.startswith("AWSServiceRoleFor") or role.get("Path", "").startswith("/aws-service-role/"):
                     continue
-                
+
                 try:
                     policies = iam.list_attached_role_policies(RoleName=role_name)
                     attached_policies = sorted(
@@ -211,7 +211,7 @@ def fetch_live_iam_roles(region: str, profile: str = None) -> dict:
                     )
                 except Exception:
                     attached_policies = []
-                
+
                 live[role_name] = {
                     "type": "aws_iam_role",
                     "name": role_name,
@@ -228,13 +228,23 @@ def fetch_live_iam_roles(region: str, profile: str = None) -> dict:
         return None
     return live
 
+_cost_cache = {}
+
+def clear_cost_cache():
+    global _cost_cache
+    _cost_cache.clear()
+
 def get_resource_cost(resource_id: str, profile: str = None) -> float | None:
+    cache_key = (resource_id, profile)
+    if cache_key in _cost_cache:
+        return _cost_cache[cache_key]
+
     try:
         client = get_boto3_client("ce", profile=profile, region="us-east-1")
-        
+
         end_date = datetime.today().strftime("%Y-%m-%d")
         start_date = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
-        
+
         response = client.get_cost_and_usage(
             TimePeriod={"Start": start_date, "End": end_date},
             Granularity="MONTHLY",
@@ -246,11 +256,14 @@ def get_resource_cost(resource_id: str, profile: str = None) -> float | None:
                 }
             }
         )
-        
+
         results_by_time = response.get("ResultsByTime", [])
         if not results_by_time:
+            _cost_cache[cache_key] = None
             return None
         usd_cost = float(results_by_time[0]["Total"]["UnblendedCost"]["Amount"])
+        _cost_cache[cache_key] = usd_cost
         return usd_cost
     except Exception:
+        _cost_cache[cache_key] = None
         return None
