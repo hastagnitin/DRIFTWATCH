@@ -1,5 +1,4 @@
 import os
-import sys
 from drift_engine.models import (
     DriftResult,
     DriftType,
@@ -22,7 +21,7 @@ def normalize_sg_rules(rules) -> list:
     normalized = []
     if not isinstance(rules, list):
         return normalized
-        
+
     for rule in rules:
         if isinstance(rule, dict):
             cidrs = rule.get('cidr_blocks') or []
@@ -30,33 +29,33 @@ def normalize_sg_rules(rules) -> list:
                 cidrs = tuple(sorted(cidrs))
             else:
                 cidrs = tuple()
-                
+
             normalized.append({
                 'from_port': rule.get('from_port'),
                 'to_port': rule.get('to_port'),
                 'protocol': rule.get('protocol'),
                 'cidr_blocks': cidrs
             })
-            
+
     final_rules = []
     for t in {tuple(sorted(d.items())) for d in normalized}:
         rule_dict = dict(t)
         rule_dict['cidr_blocks'] = list(rule_dict['cidr_blocks'])
         final_rules.append(rule_dict)
-        
+
     return final_rules
 
 def compare_attributes(tf, live, r_type) -> dict:
     monitored = MONITORED_ATTRIBUTES.get(r_type, set())
     diff = {}
-    
+
     for key in monitored:
         tf_val = tf.get(key)
         live_val = live.get(key)
-        
+
         if (tf_val in [None, "", [], {}]) and (live_val in [None, "", [], {}]):
             continue
-            
+
         if r_type == "aws_security_group" and key in ["ingress", "egress"]:
             tf_norm = normalize_sg_rules(tf_val)
             live_norm = normalize_sg_rules(live_val)
@@ -64,11 +63,21 @@ def compare_attributes(tf, live, r_type) -> dict:
                 diff[key] = {"terraform": tf_norm, "live": live_norm}
         elif tf_val != live_val:
             diff[key] = {"terraform": tf_val, "live": live_val}
-            
+
     return diff
 
-def detect_drift(tf_state_path: str, region: str, profile: str = None):
-    tf_resources = load_terraform_state(tf_state_path)
+class DriftScanResult(tuple):
+    def __new__(cls, results, total_scanned, failed_services=None):
+        return super().__new__(cls, (results, total_scanned))
+
+    def __init__(self, results, total_scanned, failed_services=None):
+        self.results = results
+        self.total_scanned = total_scanned
+        self.failed_services = failed_services or []
+
+def detect_drift(tf_state_path: str, region: str, profile: str = None, allow_partial: bool = False):
+    tf_resources = load_terraform_state(tf_state_path, profile=profile)
+
 
     failed_types = set()
 
@@ -102,25 +111,31 @@ def detect_drift(tf_state_path: str, region: str, profile: str = None):
         failed_types.add("aws_iam_role")
         live_iam = {}
 
+    ALL_SERVICE_TYPES = {"aws_instance", "aws_s3_bucket", "aws_security_group", "aws_db_instance", "aws_lambda_function", "aws_iam_role"}
+
     if failed_types:
-        raise RuntimeError(f"Failed to fetch live AWS resources for: {', '.join(sorted(failed_types))}")
-        
+        if failed_types >= ALL_SERVICE_TYPES:
+            raise RuntimeError(f"Failed to fetch live AWS resources for all services: {', '.join(sorted(failed_types))}")
+        if not allow_partial:
+            raise RuntimeError(f"Failed to fetch live AWS resources for: {', '.join(sorted(failed_types))}. Pass --allow-partial to scan healthy services anyway.")
+
+
     live_resources = {**live_ec2, **live_s3, **live_sg, **live_rds, **live_lambda, **live_iam}
-    
+
     results = []
     all_ids = set(tf_resources) | set(live_resources)
     total_scanned = len(all_ids)
-    
+
     for rid in all_ids:
         in_tf = rid in tf_resources
         in_live = rid in live_resources
-        
+
         res_name = "Unknown"
         if in_tf:
             res_name = tf_resources[rid]["name"]
         elif in_live:
             res_name = live_resources[rid]["name"]
-            
+
         if in_tf and not in_live:
             if tf_resources[rid]["type"] in failed_types:
                 continue
@@ -155,15 +170,16 @@ def detect_drift(tf_state_path: str, region: str, profile: str = None):
                     live_attributes=live_resources[rid]["attributes"],
                     diff=diff
                 ))
-                
-    return results, total_scanned
+
+    return DriftScanResult(results, total_scanned, failed_services=sorted(failed_types))
+
 
 def get_severity(r_type: str, d_type: DriftType, diff: dict = None) -> str:
     if d_type == DriftType.MISSING or d_type == DriftType.UNMANAGED:
         if r_type in ["aws_security_group", "aws_iam_role"]:
             return "CRITICAL"
         return "HIGH"
-        
+
     if diff:
         type_severity_map = ATTRIBUTE_SEVERITY.get(r_type, {})
         highest_sev = "LOW"
