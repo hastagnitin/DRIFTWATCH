@@ -24,13 +24,10 @@ def confirm_action(action_desc: str, env: str = 'unknown', is_disruptive: bool =
         print(f"[*] Auto-approving (--yes/--force): {action_desc}")
         return True
 
-    if env in ['dev', 'staging']:
-        print(f"[*] [{env.upper()}] Auto-approving: {action_desc}")
-        return True
-
-    print(f"[!] [{env.upper()}] Protection Active. Manual action required.")
+    print(f"[!] [{env.upper()}] Environment detected. Manual confirmation required.")
     if is_disruptive:
         print("[!] WARNING: This is a disruptive action -> Downtime risk!")
+
 
     while True:
         try:
@@ -53,11 +50,11 @@ def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: st
             print(f"❌ EC2 instance {instance_id} not found.")
             return
         instance_info = reservations[0]['Instances'][0]
-        
+
         if instance_info.get('RootDeviceType') != 'ebs':
             print(f"❌ Cannot modify instance {instance_id}: Root device is not EBS-backed (found: {instance_info.get('RootDeviceType')}).")
             return
-            
+
         if instance_info.get('InstanceLifecycle') == 'spot':
             print(f"❌ Cannot modify instance {instance_id}: Spot instances do not support instance type modification.")
             return
@@ -83,18 +80,18 @@ def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: st
             waiter = ec2.get_waiter('instance_stopped')
             waiter.wait(InstanceIds=[instance_id])
             stopped = True
-            
+
         print(f"Modifying instance type to {expected_type}...")
         ec2.modify_instance_attribute(
             InstanceId=instance_id,
             InstanceType={'Value': expected_type}
         )
-        
+
         if was_running:
             print(f"Restarting instance {instance_id}...")
             ec2.start_instances(InstanceIds=[instance_id])
             stopped = False
-            
+
         print(f"✅ [REMEDIATED] Successfully remediated {instance_id} back to {expected_type}")
     except Exception as e:
         print(f"❌ Failed to remediate EC2 {instance_id}: {e}")
@@ -107,11 +104,11 @@ def remediate_ec2_instance_type(region: str, instance_id: str, expected_type: st
 
 def remediate_security_group(region: str, sg_id: str, diff_data: dict, env: str, auto_approve: bool = False, profile: str = None):
     ec2 = _get_client('ec2', region=region, profile=profile)
-    
+
     if "ingress" in diff_data:
         expected_ingress = diff_data["ingress"].get("terraform", [])
         live_ingress = diff_data["ingress"].get("live", [])
-        
+
         print(f"Checking Security Group {sg_id} for Ingress drift...")
         for live_rule in live_ingress:
             if live_rule not in expected_ingress:
@@ -145,7 +142,7 @@ def remediate_security_group(region: str, sg_id: str, diff_data: dict, env: str,
     if "egress" in diff_data:
         expected_egress = diff_data["egress"].get("terraform", [])
         live_egress = diff_data["egress"].get("live", [])
-        
+
         print(f"Checking Security Group {sg_id} for Egress drift...")
         for live_rule in live_egress:
             if live_rule not in expected_egress:
@@ -177,7 +174,7 @@ def remediate_security_group(region: str, sg_id: str, diff_data: dict, env: str,
 def remediate_s3_bucket(bucket_name: str, diff_data: dict, env: str, region: str = None, auto_approve: bool = False, profile: str = None):
     actual_region = region or os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
     s3 = _get_client('s3', region=actual_region, profile=profile)
-    
+
     if "tags" in diff_data:
         expected_tags = diff_data["tags"].get("terraform", {})
         if confirm_action(f"Restore IaC tags for S3 Bucket '{bucket_name}'", env, False, auto_approve=auto_approve):
@@ -187,19 +184,19 @@ def remediate_s3_bucket(bucket_name: str, diff_data: dict, env: str, region: str
                 print(f"✅ [REMEDIATED] Successfully restored tags for {bucket_name}")
             except Exception as e:
                 print(f"❌ Failed to restore S3 tags: {e}")
-                
+
     if "bucket" in diff_data:
         print(f"⚠️  Bucket name drift detected for {bucket_name}. S3 buckets cannot be renamed. Please recreate via Terraform.")
 
 def remediate_rds_instance(region: str, db_id: str, diff_data: dict, env: str, apply_immediately: bool = False, auto_approve: bool = False, profile: str = None):
     rds = _get_client('rds', region=region, profile=profile)
     updates = {}
-    
+
     if "instance_class" in diff_data:
         updates['DBInstanceClass'] = diff_data["instance_class"]["terraform"]
     if "allocated_storage" in diff_data:
         updates['AllocatedStorage'] = diff_data["allocated_storage"]["terraform"]
-        
+
     if updates:
         mode_desc = "immediately (may force reboot)" if apply_immediately else "during next maintenance window"
         if confirm_action(f"Modify RDS {db_id} ({mode_desc}) with configs: {updates}", env, apply_immediately, auto_approve=auto_approve):
@@ -213,7 +210,7 @@ def remediate_rds_instance(region: str, db_id: str, diff_data: dict, env: str, a
 def remediate_lambda_function(region: str, func_name: str, diff_data: dict, env: str, auto_approve: bool = False, profile: str = None):
     lam = _get_client('lambda', region=region, profile=profile)
     updates = {}
-    
+
     if "runtime" in diff_data:
         updates['Runtime'] = diff_data["runtime"]["terraform"]
     if "handler" in diff_data:
@@ -222,7 +219,7 @@ def remediate_lambda_function(region: str, func_name: str, diff_data: dict, env:
         updates['MemorySize'] = diff_data["memory_size"]["terraform"]
     if "timeout" in diff_data:
         updates['Timeout'] = diff_data["timeout"]["terraform"]
-    
+
     if updates:
         if confirm_action(f"Modify Lambda {func_name} with {updates}", env, False, auto_approve=auto_approve):
             try:
@@ -265,26 +262,26 @@ def process_remediation(drift_results: list, auto_approve: bool = False, profile
 
         if result.drift_type.value == "MODIFIED":
             print(f"\n--- Drift Detected: {result.resource_type} ({result.resource_id}) ---")
-            
+
             if result.resource_type == "aws_instance" and "instance_type" in result.diff:
                 expected_type = result.diff["instance_type"]["terraform"]
                 remediate_ec2_instance_type(region, result.resource_id, expected_type, env, auto_approve=auto_approve, profile=profile)
-            
+
             elif result.resource_type == "aws_security_group":
                 remediate_security_group(region, result.resource_id, result.diff, env, auto_approve=auto_approve, profile=profile)
 
             elif result.resource_type == "aws_s3_bucket":
                 remediate_s3_bucket(result.resource_id, result.diff, env, region=region, auto_approve=auto_approve, profile=profile)
-                
+
             elif result.resource_type == "aws_db_instance":
                 remediate_rds_instance(region, result.resource_id, result.diff, env, apply_immediately=False, auto_approve=auto_approve, profile=profile)
-                
+
             elif result.resource_type == "aws_lambda_function":
                 remediate_lambda_function(region, result.resource_id, result.diff, env, auto_approve=auto_approve, profile=profile)
 
             elif result.resource_type == "aws_iam_role":
                 remediate_iam_role(result.resource_id, result.diff, env, region=region, auto_approve=auto_approve, profile=profile)
-                
+
         elif result.drift_type.value in ["MISSING", "UNMANAGED"]:
             print(f"\n--- {result.drift_type.value} Resource Detected: {result.resource_type} ({result.resource_id}) ---")
             print(f"⚠️  Auto-remediation for {result.drift_type.value} resources is not executed directly. Please review the suggested Terraform template/import commands to reconcile.")
