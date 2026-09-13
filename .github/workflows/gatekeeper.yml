@@ -19,14 +19,26 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       - name: Install Local Source and Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev]
 
-      - name: Run Test Suite
+      - name: Code Quality & Linting (Ruff)
+        run: |
+          ruff check drift_engine/ driftwatch/
+
+      - name: Security Vulnerability Scan (Bandit)
+        run: |
+          bandit -r drift_engine/ driftwatch/ -ll -i
+
+      - name: Dependency Security Audit (pip-audit)
+        run: |
+          pip-audit
+
+      - name: Run Test Suite & Coverage
         run: |
           pytest tests/ -v --cov=drift_engine --cov=driftwatch --cov-report=xml
 
@@ -37,21 +49,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Fetch Terraform State from S3
+      - name: Enforce Drift Zero-Tolerance Policy (Direct S3 State Support)
         env:
           TF_STATE_BUCKET_NAME: ${{ secrets.TF_STATE_BUCKET_NAME }}
-        run: |
-          if [ -z "$TF_STATE_BUCKET_NAME" ]; then
-            echo "Error: TF_STATE_BUCKET_NAME secret is not set"
-            exit 1
-          fi
-          mkdir -p terraform
-          aws s3 cp "s3://${TF_STATE_BUCKET_NAME}/terraform.tfstate" terraform/terraform.tfstate
-
-      - name: Enforce Drift Zero-Tolerance Policy
-        env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          driftwatch scan --region ${{ secrets.AWS_REGION }} --fail-on CRITICAL
+          STATE_ARG="terraform/terraform.tfstate"
+          if [ -n "$TF_STATE_BUCKET_NAME" ]; then
+            STATE_ARG="s3://${TF_STATE_BUCKET_NAME}/terraform.tfstate"
+          fi
+          driftwatch scan --region ${{ secrets.AWS_REGION }} --state "${STATE_ARG}" --fail-on CRITICAL
