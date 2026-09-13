@@ -189,3 +189,29 @@ def test_h1_no_heavy_sdk_dependencies():
     assert "python-telegram-bot" not in dep_names, "python-telegram-bot should not be a runtime dependency; use HTTP requests"
     assert "telegram" not in dep_names
 
+
+def test_sanitize_diff_for_ai():
+    """Verify that sensitive information is scrubbed before LLM dispatch."""
+    from drift_engine.explain import sanitize_diff_for_ai, sanitize_value
+
+    diff_data = {
+        "arn": "arn:aws:iam::123456789012:role/admin-role",
+        "private_network": "10.0.1.50/32",
+        "ingress_rule": {"cidr_blocks": ["192.168.1.0/24", "0.0.0.0/0"]},
+        "db_password": "super-secret-password-123",
+        "api_key": "abc123secret",
+        "normal_attr": "t3.medium"
+    }
+
+    sanitized = sanitize_diff_for_ai(diff_data)
+    assert "123456789012" not in sanitized["arn"]
+    assert "[ACCOUNT_ID]" in sanitized["arn"]
+    assert "10.0.1.50" not in sanitized["private_network"]
+    assert "[PRIVATE_IP_OR_CIDR]" in sanitized["private_network"]
+    assert "[PRIVATE_IP_OR_CIDR]" in sanitized["ingress_rule"]["cidr_blocks"][0]
+    assert sanitized["ingress_rule"]["cidr_blocks"][1] == "0.0.0.0/0"
+    assert sanitized["db_password"] == "[REDACTED_SECRET]"
+    assert sanitized["api_key"] == "[REDACTED_SECRET]"
+    assert sanitized["normal_attr"] == "t3.medium"
+
+
