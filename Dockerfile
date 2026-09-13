@@ -1,21 +1,29 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS builder
 
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y wget unzip \
-    && wget https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip \
-    && unzip terraform_1.5.7_linux_amd64.zip \
-    && mv terraform /usr/local/bin/ \
-    && rm terraform_1.5.7_linux_amd64.zip \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY pyproject.toml requirements.txt ./
+WORKDIR /build
+COPY pyproject.toml README.md ./
 COPY drift_engine/ drift_engine/
 COPY driftwatch/ driftwatch/
-COPY terraform/ terraform/
-COPY run.sh .
 
-RUN chmod +x run.sh && pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir --upgrade pip build && \
+    python -m build --wheel --outdir /wheels
 
-CMD ["./run.sh"]
+FROM python:3.12-slim AS runtime
+
+RUN groupadd -g 10001 driftwatch && \
+    useradd -u 10001 -g driftwatch -m -s /bin/bash driftwatch
+
+WORKDIR /home/driftwatch/app
+
+COPY --from=builder /wheels/*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/*.whl && \
+    rm -rf /tmp/*.whl
+
+COPY --chown=driftwatch:driftwatch terraform/ terraform/
+COPY --chown=driftwatch:driftwatch run.sh .
+RUN chmod +x run.sh
+
+USER driftwatch
+
+ENTRYPOINT ["driftwatch"]
+CMD ["scan"]
