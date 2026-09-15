@@ -68,10 +68,13 @@ def _resolve_region(region: str = None, profile: str = None) -> str:
             actual_region = None
     return actual_region
 
-def _run_scan(state_path: str, region: str, profile: str = None) -> tuple:
+def _run_scan(state_path: str, region: str, profile: str = None, allow_partial: bool = False) -> tuple:
     os.environ["TF_STATE_PATH"] = state_path
     os.environ["AWS_DEFAULT_REGION"] = region
+    if allow_partial:
+        return detect_drift(state_path, region, profile=profile, allow_partial=True)
     return detect_drift(state_path, region, profile=profile)
+
 
 def _load_from_scan(from_scan_path: str) -> tuple[list, str]:
     try:
@@ -102,10 +105,14 @@ def _load_from_scan(from_scan_path: str) -> tuple[list, str]:
         results.append(r)
     return results, scan_region
 
-def _render_report(results: list, total_scanned: int, profile: str = None) -> tuple[str, int, int]:
+def _render_report(results: list, total_scanned: int, profile: str = None, failed_services: list = None) -> tuple[str, int, int]:
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     typer.echo("=== DRIFTWATCH SCAN REPORT ===")
     typer.echo(f"Scan time: {current_time} | Resources scanned: {total_scanned}\n")
+
+    if failed_services:
+        typer.secho(f"⚠️  [PARTIAL SCAN] Failed to fetch live state for: {', '.join(failed_services)}.", fg=typer.colors.YELLOW, bold=True)
+        typer.secho("   Drift results below only cover successfully queried AWS services.\n", fg=typer.colors.YELLOW)
 
     if not results:
         typer.secho("No drift detected. Infrastructure matches IaC.", fg=typer.colors.GREEN)
@@ -170,7 +177,7 @@ def _render_report(results: list, total_scanned: int, profile: str = None) -> tu
     typer.echo(f"Total drift found: {len(results)} resources  |  CRITICAL: {crit_count}  HIGH: {high_count}\n")
     return highest_severity_found, crit_count, high_count
 
-def _render_json_report(results: list, total_scanned: int, region: str, state_path: str, profile: str = None) -> tuple[str, dict]:
+def _render_json_report(results: list, total_scanned: int, region: str, state_path: str, profile: str = None, failed_services: list = None) -> tuple[str, dict]:
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     highest_severity_found = "LOW" if results else "NONE"
     formatted_results = []
@@ -210,6 +217,7 @@ def _render_json_report(results: list, total_scanned: int, region: str, state_pa
         "total_scanned": total_scanned,
         "drift_count": len(results),
         "highest_severity": highest_severity_found,
+        "failed_services": failed_services or [],
         "results": formatted_results
     }
     typer.echo(json.dumps(report, indent=2))
@@ -239,7 +247,8 @@ def scan(
         help="Severity threshold to trigger non-zero exit code (LOW, MEDIUM, HIGH, CRITICAL)."
     ),
     output: OutputFormat = typer.Option(OutputFormat.text, "--output", "-o", case_sensitive=False, help="Output format: 'text' or 'json'."),
-    json_output: bool = typer.Option(False, "--json", help="Shorthand for --output json.")
+    json_output: bool = typer.Option(False, "--json", help="Shorthand for --output json."),
+    allow_partial: bool = typer.Option(False, "--allow-partial", help="Allow partial scan results if some AWS services fail to fetch.")
 ):
     """Scan infrastructure against Terraform state and identify drift."""
     actual_region = _resolve_region(region, profile=profile)
@@ -253,12 +262,15 @@ def scan(
         typer.echo(f"Scanning AWS Infrastructure in {actual_region}...\n")
 
     try:
-        results, total_scanned = _run_scan(state, actual_region, profile=profile)
+        scan_res = _run_scan(state, actual_region, profile=profile, allow_partial=allow_partial)
+        results = scan_res[0]
+        total_scanned = scan_res[1]
+        failed_services = getattr(scan_res, "failed_services", [])
 
         if is_json:
-            highest_severity, _ = _render_json_report(results, total_scanned, actual_region, state, profile=profile)
+            highest_severity, _ = _render_json_report(results, total_scanned, actual_region, state, profile=profile, failed_services=failed_services)
         else:
-            highest_severity, _, _ = _render_report(results, total_scanned, profile=profile)
+            highest_severity, _, _ = _render_report(results, total_scanned, profile=profile, failed_services=failed_services)
 
         if results:
             _dispatch_alerts(results)
