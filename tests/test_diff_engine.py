@@ -225,3 +225,135 @@ def test_detect_drift_full_flow(tmp_path):
     assert types[inst_id] == DriftType.MODIFIED
     assert "deleted-bucket" in types
     assert types["deleted-bucket"] == DriftType.MISSING
+
+
+def test_drift_engine_package_exports():
+    """L3: Verify drift_engine/__init__.py exports the core API symbols."""
+    import drift_engine
+    assert hasattr(drift_engine, "detect_drift")
+    assert hasattr(drift_engine, "get_severity")
+    assert hasattr(drift_engine, "DriftResult")
+    assert hasattr(drift_engine, "DriftType")
+    assert hasattr(drift_engine, "MONITORED_ATTRIBUTES")
+    assert hasattr(drift_engine, "ATTRIBUTE_SEVERITY")
+
+
+def test_driftwatch_engine_namespaced_alias():
+    """L3: Verify driftwatch exports the engine module under driftwatch.engine."""
+    import driftwatch
+    assert hasattr(driftwatch, "engine")
+    assert driftwatch.engine is not None
+    assert hasattr(driftwatch.engine, "detect_drift")
+    assert hasattr(driftwatch.engine, "get_severity")
+
+
+@mock_aws
+def test_load_terraform_state_from_s3_success():
+    region = "ap-south-1"
+    s3 = boto3.client("s3", region_name=region)
+    bucket = "my-tfstate-bucket"
+    s3.create_bucket(Bucket=bucket, CreateBucketConfiguration={"LocationConstraint": region})
+
+    state_content = {
+        "resources": [
+            {
+                "type": "aws_instance",
+                "instances": [
+                    {
+                        "attributes": {
+                            "id": "i-remote-1",
+                            "instance_type": "t3.micro"
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    s3.put_object(Bucket=bucket, Key="env/prod/terraform.tfstate", Body=json.dumps(state_content))
+
+    parsed = load_terraform_state(f"s3://{bucket}/env/prod/terraform.tfstate")
+    assert "i-remote-1" in parsed
+    assert parsed["i-remote-1"]["type"] == "aws_instance"
+
+
+@mock_aws
+def test_load_terraform_state_from_s3_not_found():
+    with pytest.raises(FileNotFoundError):
+        load_terraform_state("s3://nonexistent-bucket/state.tfstate")
+
+
+@mock_aws
+def test_load_terraform_state_from_s3_corrupt():
+    region = "ap-south-1"
+    s3 = boto3.client("s3", region_name=region)
+    bucket = "corrupt-tf-bucket"
+    s3.create_bucket(Bucket=bucket, CreateBucketConfiguration={"LocationConstraint": region})
+    s3.put_object(Bucket=bucket, Key="state.tfstate", Body=b"not-json-content")
+
+    with pytest.raises(ValueError, match="corrupted or invalid JSON"):
+        load_terraform_state(f"s3://{bucket}/state.tfstate")
+
+
+def test_load_terraform_state_from_s3_invalid_uri():
+    with pytest.raises(ValueError, match="Invalid S3 state URI"):
+        load_terraform_state("s3://onlybucket")
+
+
+def test_cost_explorer_caching(monkeypatch):
+    from drift_engine.aws_client import get_resource_cost, clear_cost_cache, _cost_cache
+
+    clear_cost_cache()
+    api_call_count = 0
+
+    class MockCE:
+        def get_cost_and_usage(self, **kwargs):
+            nonlocal api_call_count
+            api_call_count += 1
+            return {"ResultsByTime": [{"Total": {"UnblendedCost": {"Amount": "42.50"}}}]}
+
+    monkeypatch.setattr("drift_engine.aws_client.get_boto3_client", lambda s, profile=None, region=None: MockCE())
+
+    c1 = get_resource_cost("i-test-cache-1")
+    assert c1 == 42.50
+    assert api_call_count == 1
+
+    c2 = get_resource_cost("i-test-cache-1")
+    assert c2 == 42.50
+    assert api_call_count == 1
+
+    clear_cost_cache()
+    assert len(_cost_cache) == 0
+
+
+@mock_aws
+def test_detect_drift_partial_failure_with_allow_partial(tmp_path, monkeypatch):
+    region = "ap-south-1"
+    state_content = {
+        "resources": [
+            {
+                "type": "aws_s3_bucket",
+                "instances": [{"attributes": {"id": "bucket-1", "bucket": "bucket-1"}}]
+            },
+            {
+                "type": "aws_db_instance",
+                "instances": [{"attributes": {"id": "db-1", "identifier": "db-1"}}]
+            }
+        ]
+    }
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text(json.dumps(state_content))
+
+    monkeypatch.setattr("drift_engine.core.fetch_live_rds_instances", lambda reg, profile=None: None)
+    monkeypatch.setattr("drift_engine.core.fetch_live_s3_buckets", lambda reg, profile=None: {"bucket-1": {"type": "aws_s3_bucket", "name": "bucket-1", "attributes": {"id": "bucket-1", "bucket": "bucket-1"}}})
+    monkeypatch.setattr("drift_engine.core.fetch_live_ec2_instances", lambda reg, profile=None: {})
+    monkeypatch.setattr("drift_engine.core.fetch_live_security_groups", lambda reg, profile=None: {})
+    monkeypatch.setattr("drift_engine.core.fetch_live_lambda_functions", lambda reg, profile=None: {})
+    monkeypatch.setattr("drift_engine.core.fetch_live_iam_roles", lambda reg, profile=None: {})
+
+    with pytest.raises(RuntimeError, match="aws_db_instance"):
+        detect_drift(str(state_file), region, allow_partial=False)
+
+    scan_result = detect_drift(str(state_file), region, allow_partial=True)
+    results, total_scanned = scan_result
+    assert scan_result.failed_services == ["aws_db_instance"]
+    assert len(results) == 0
