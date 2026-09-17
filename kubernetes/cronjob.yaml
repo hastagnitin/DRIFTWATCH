@@ -8,17 +8,29 @@ spec:
     spec:
       template:
         spec:
-          hostNetwork: true
-          dnsPolicy: Default
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+          dnsPolicy: ClusterFirst
           containers:
           - name: driftwatch-engine
             image: driftwatch:latest
-            imagePullPolicy: Never
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                - ALL
             command:
             - "driftwatch"
             - "scan"
             - "--region"
             - "ap-south-1"
+            - "--fail-on"
+            - "CRITICAL"
             envFrom:
             - secretRef:
                 name: driftwatch-env

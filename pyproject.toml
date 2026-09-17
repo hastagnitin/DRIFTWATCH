@@ -42,8 +42,13 @@ dev = [
     "pytest-cov>=4.0.0",
     "moto[all]>=5.0.0",
     "build",
-    "twine"
+    "twine",
+    "ruff>=0.1.0",
+    "bandit>=1.7.0",
+    "mypy>=1.5.0",
+    "pip-audit>=2.6.0"
 ]
+
 
 [project.urls]
 Homepage = "https://github.com/hastagnitin/driftwatch"
@@ -58,3 +63,11 @@ include = ["driftwatch*", "drift_engine*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501", "E402"]
