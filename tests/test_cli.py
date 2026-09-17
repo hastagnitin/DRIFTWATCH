@@ -531,7 +531,6 @@ def test_cli_scan_with_unmanaged_ec2_and_cost_unavailable(monkeypatch, tmp_path)
     assert "$0.00" not in result.stdout
 
 
-# --- C1 regression: ALL six AWS fetch functions return None ---
 def test_cli_scan_all_aws_fetches_fail_exits_nonzero(tmp_path, monkeypatch):
     """C1: When every AWS resource type fails to fetch, scan must exit non-zero
     and NOT print 'No drift detected'."""
@@ -551,7 +550,6 @@ def test_cli_scan_all_aws_fetches_fail_exits_nonzero(tmp_path, monkeypatch):
     assert "Failed to fetch live AWS resources" in result.stdout
 
 
-# --- M1 regression: --version output matches importlib.metadata ---
 def test_cli_version_matches_package_metadata():
     """M1: --version must print the version from package metadata, not a hardcoded string."""
     import importlib.metadata
@@ -564,7 +562,6 @@ def test_cli_version_matches_package_metadata():
     assert expected in result.stdout
 
 
-# --- M4 regression: --profile is threaded into process_remediation ---
 def test_cli_remediate_profile_passed_to_remediation(monkeypatch, tmp_path):
     """M4: When --profile is passed to remediate, it must be forwarded to process_remediation."""
     mock_results = [
@@ -594,7 +591,6 @@ def test_cli_remediate_profile_passed_to_remediation(monkeypatch, tmp_path):
     assert captured_kwargs[0]["profile"] == "staging"
 
 
-# --- M6 regression: --from-scan must NOT call any fetch_live function ---
 def test_cli_explain_from_scan_does_not_call_fetch_live(monkeypatch, tmp_path):
     """M6: When --from-scan is used, no live AWS fetching should occur."""
     scan_data = {
@@ -618,7 +614,6 @@ def test_cli_explain_from_scan_does_not_call_fetch_live(monkeypatch, tmp_path):
     scan_file.write_text(json.dumps(scan_data))
     monkeypatch.setattr("driftwatch.cli.get_drift_explanation", lambda rt, rid, diff, dt: "Cached analysis.")
 
-    # Plant bombs: if any fetch_live is called, the test explodes
     def _boom(*a, **kw):
         raise AssertionError("fetch_live_* should not be called when --from-scan is used")
     monkeypatch.setattr("driftwatch.cli.detect_drift", _boom)
@@ -661,7 +656,6 @@ def test_cli_remediate_from_scan_does_not_call_fetch_live(monkeypatch, tmp_path)
     assert len(called) == 1
 
 
-# --- M7 regression: batch remediation with 3 resources ---
 def test_cli_remediate_all_flag_three_resources(monkeypatch, tmp_path):
     """M7: --all against 3 drifted resources calls process_remediation once with all 3."""
     mock_results = [
@@ -685,7 +679,6 @@ def test_cli_remediate_all_flag_three_resources(monkeypatch, tmp_path):
     assert len(called[0]) == 3, f"Expected 3 resources in batch, got {len(called[0])}"
 
 
-# --- M8 regression: cost unavailable for MODIFIED resources ---
 def test_cli_scan_modified_resource_cost_unavailable(monkeypatch, tmp_path):
     """M8: When Cost Explorer fails for a MODIFIED EC2/RDS/Lambda, output should say
     'unavailable' not '$0.00' or just omit cost."""
@@ -713,7 +706,6 @@ def test_cli_scan_modified_resource_cost_unavailable(monkeypatch, tmp_path):
     assert "$0.00" not in result.stdout
 
 
-# --- C2 regression: --force and -y flag aliases ---
 def test_cli_remediate_apply_force_and_y_flags(monkeypatch, tmp_path):
     """C2: --force and -y should both auto-approve remediation prompts."""
     mock_results = [
@@ -732,20 +724,17 @@ def test_cli_remediate_apply_force_and_y_flags(monkeypatch, tmp_path):
     state_file = tmp_path / "terraform.tfstate"
     state_file.write_text("{}")
 
-    # Test --force
     monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False, profile=None: called_force.append(auto_approve))
     result = runner.invoke(app, ["remediate", "b-force", "--region", "ap-south-1", "--state", str(state_file), "--apply", "--force"])
     assert result.exit_code == 0
     assert called_force == [True]
 
-    # Test -y
     monkeypatch.setattr("driftwatch.cli.process_remediation", lambda res, auto_approve=False, profile=None: called_y.append(auto_approve))
     result = runner.invoke(app, ["remediate", "b-force", "--region", "ap-south-1", "--state", str(state_file), "--apply", "-y"])
     assert result.exit_code == 0
     assert called_y == [True]
 
 
-# --- M1 regression: -v flag alias ---
 def test_cli_v_version_shorthand():
     """M1: -v shorthand should output version information identically to --version."""
     result = runner.invoke(app, ["-v"])
@@ -753,7 +742,6 @@ def test_cli_v_version_shorthand():
     assert "driftwatch-cli" in result.stdout
 
 
-# --- M3 regression: Subcommand -h shorthand ---
 def test_cli_subcommands_h_help_shorthand():
     """M3: -h should work as help shorthand on subcommands."""
     for cmd in ["scan", "explain", "remediate"]:
@@ -763,5 +751,14 @@ def test_cli_subcommands_h_help_shorthand():
         assert "-h" in result.stdout
 
 
+def test_cli_scan_allow_partial_flag(monkeypatch, tmp_path):
+    from drift_engine.core import DriftScanResult
+    mock_scan_res = DriftScanResult([], 1, failed_services=["aws_db_instance"])
+    monkeypatch.setattr("driftwatch.cli._run_scan", lambda state, reg, profile=None, allow_partial=False: mock_scan_res)
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text("{}")
 
-
+    result = runner.invoke(app, ["scan", "--region", "ap-south-1", "--state", str(state_file), "--allow-partial"])
+    assert result.exit_code == 0
+    assert "[PARTIAL SCAN]" in result.stdout
+    assert "aws_db_instance" in result.stdout

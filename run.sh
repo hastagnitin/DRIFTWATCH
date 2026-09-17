@@ -1,12 +1,11 @@
 #!/bin/bash
 
-set -a
-source .env
-set +a
+LOG_FILE="${DRIFT_LOG_FILE:-drift.log}"
+CHECK_INTERVAL="${CHECK_INTERVAL_SECONDS:-300}"
 
 while true; do
-    echo "Starting DriftWatch Check at $(date)" | tee -a drift.log
-    python3 -u drift_engine/core.py 2>&1 | tee -a drift.log
-    echo "Finished Check" | tee -a drift.log
-    sleep 300
+    echo "Starting DriftWatch Check at $(date -u '+%Y-%m-%d %H:%M:%S UTC')" | tee -a "${LOG_FILE}"
+    driftwatch scan 2>&1 | tee -a "${LOG_FILE}"
+    echo "Finished Check" | tee -a "${LOG_FILE}"
+    sleep "${CHECK_INTERVAL}"
 done
