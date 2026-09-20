@@ -5,8 +5,10 @@ import boto3
 import importlib.metadata
 from enum import Enum
 from datetime import datetime
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
+# Search CWD and parents first so driftwatch reads .env from where the command was executed
+load_dotenv(find_dotenv(usecwd=True))
 load_dotenv()
 
 from drift_engine.core import detect_drift, get_severity
