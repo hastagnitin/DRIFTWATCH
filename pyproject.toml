@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "driftwatch-cli"
-version = "3.0.2"
-description = "CLI tool that detects Terraform infrastructure drift against live AWS, explains it with AI, and guides remediation."
+version = "3.0.3"
+description = "Detect Terraform infrastructure drift against live AWS, explain risk with AI, and remediate — terraform drift detection, aws infrastructure drift, iac drift monitoring."
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
