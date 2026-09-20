@@ -215,3 +215,35 @@ def test_sanitize_diff_for_ai():
     assert sanitized["normal_attr"] == "t3.medium"
 
 
+def test_explain_with_404_fallback(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-mock-key")
+    attempts = []
+
+    class Mock404Response:
+        status_code = 404
+        def raise_for_status(self):
+            import requests
+            raise requests.exceptions.HTTPError(response=self)
+        def json(self):
+            return {"error": {"message": "The model 'llama-3.1-8b-instant' does not exist."}}
+
+    class MockSuccessResponse:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": "Fallback model analysis successful."}}]}
+
+    def mock_post(url, json, headers, timeout):
+        model = json["model"]
+        attempts.append(model)
+        if len(attempts) == 1:
+            return Mock404Response()
+        return MockSuccessResponse()
+
+    monkeypatch.setattr("requests.post", mock_post)
+    explanation = get_drift_explanation("aws_security_group", "sg-123", {"ingress": {}}, "MODIFIED")
+    assert "Fallback model analysis successful" in explanation
+    assert len(attempts) >= 2
+
+
+
