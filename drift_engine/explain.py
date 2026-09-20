@@ -86,27 +86,52 @@ def get_drift_explanation(resource_type: str, resource_id: str, diff_data: dict,
     )
 
 
-    payload = {
-        "model": "llama-3.1-8b-instant",
-        "messages": [
-            {"role": "system", "content": "You are an AWS infrastructure and security analyst. Provide concise risk analyses only."},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.2
-    }
+    preferred_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+    candidate_models = [preferred_model]
+    for fallback in ["llama-3.3-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant"]:
+        if fallback not in candidate_models:
+            candidate_models.append(fallback)
 
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
 
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=15)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("choices", [{}])[0].get("message", {}).get("content", "No risk analysis generated.")
+    last_error = None
+    for model_name in candidate_models:
+        payload = {
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": "You are an AWS infrastructure and security analyst. Provide concise risk analyses only."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.2
+        }
 
-    except requests.exceptions.RequestException as req_err:
-        return f"AI API Network Error (Groq): {req_err}"
-    except Exception as e:
-        return f"AI API Error (Groq): {str(e)}"
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("choices", [{}])[0].get("message", {}).get("content", "No risk analysis generated.")
+
+        except requests.exceptions.HTTPError as http_err:
+            status_code = getattr(http_err.response, "status_code", None)
+            err_msg = str(http_err)
+            try:
+                err_json = http_err.response.json()
+                err_msg = err_json.get("error", {}).get("message", err_msg)
+            except Exception:
+                pass
+
+            # If model was retired / not found (404), try next candidate model
+            if status_code == 404 and model_name != candidate_models[-1]:
+                continue
+
+            return f"AI API Error (Groq): {err_msg}"
+
+        except requests.exceptions.RequestException as req_err:
+            return f"AI API Network Error (Groq): {req_err}"
+        except Exception as e:
+            return f"AI API Error (Groq): {str(e)}"
+
+    return f"AI API Error (Groq): {last_error or 'No available Groq model could fulfill the request.'}"
