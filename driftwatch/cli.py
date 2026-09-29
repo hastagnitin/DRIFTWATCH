@@ -12,7 +12,7 @@ load_dotenv(find_dotenv(usecwd=True))
 load_dotenv()
 
 from drift_engine.core import detect_drift, get_severity
-from drift_engine.aws_client import get_resource_cost
+from drift_engine.aws_client import get_resource_cost, get_resource_cost_status
 from drift_engine.explain import get_drift_explanation, get_deterministic_remediation_suggestion
 from drift_engine.models import DriftResult, DriftType
 from drift_engine.notifications import process_alerts
@@ -143,19 +143,31 @@ def _render_report(results: list, total_scanned: int, profile: str = None, faile
         ai_text = ""
 
         cost_val = None
+        cost_status = None
         if r.resource_type in ["aws_instance", "aws_db_instance", "aws_lambda_function"]:
             cost_val = get_resource_cost(r.resource_id, profile=profile)
+            if isinstance(cost_val, (int, float)):
+                cost_status = "available"
+            else:
+                cost_status = get_resource_cost_status(r.resource_id, profile=profile)
 
         if r.drift_type == DriftType.UNMANAGED:
-            cost_str = f"+${cost_val:,.2f}/month (untracked)" if cost_val is not None else "unavailable"
+            if cost_status == "available" and cost_val is not None:
+                cost_str = f"+${cost_val:,.2f}/month (untracked)"
+            elif cost_status == "no_data":
+                cost_str = "no cost data"
+            else:
+                cost_str = "unavailable"
             if r.resource_type == "aws_instance":
                 inst_type = r.live_attributes.get("instance_type", "unknown")
                 typer.echo(f"  Type: {inst_type} (created manually in console)")
             typer.echo(f"  Severity: {severity} | Cost: {cost_str}")
             ai_text = get_drift_explanation(r.resource_type, r.resource_id, r.live_attributes, r.drift_type.value)
         elif r.diff:
-            if cost_val is not None:
+            if cost_status == "available" and cost_val is not None:
                 typer.echo(f"  Severity: {severity} | Estimated 30d Cost: ${cost_val:,.2f}")
+            elif cost_status == "no_data":
+                typer.echo(f"  Severity: {severity} | Estimated 30d Cost: no cost data")
             elif r.resource_type in ["aws_instance", "aws_db_instance", "aws_lambda_function"]:
                 typer.echo(f"  Severity: {severity} | Estimated 30d Cost: unavailable")
             else:
@@ -190,8 +202,13 @@ def _render_json_report(results: list, total_scanned: int, region: str, state_pa
             highest_severity_found = sev
 
         cost_val = None
+        cost_status = None
         if r.resource_type in ["aws_instance", "aws_db_instance", "aws_lambda_function"]:
             cost_val = get_resource_cost(r.resource_id, profile=profile)
+            if isinstance(cost_val, (int, float)):
+                cost_status = "available"
+            else:
+                cost_status = get_resource_cost_status(r.resource_id, profile=profile)
 
         ai_text = getattr(r, "ai_analysis", "") or ""
         if not ai_text:
@@ -209,7 +226,8 @@ def _render_json_report(results: list, total_scanned: int, region: str, state_pa
             "live_attributes": r.live_attributes or {},
             "tf_attributes": r.tf_attributes or {},
             "ai_analysis": ai_text,
-            "cost_estimate": cost_val
+            "cost_estimate": cost_val,
+            "cost_status": cost_status
         })
 
     report = {
