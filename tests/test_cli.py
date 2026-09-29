@@ -332,6 +332,7 @@ def test_cli_scan_json_output(monkeypatch, tmp_path):
     assert data["drift_count"] == 1
     assert data["results"][0]["resource_id"] == "i-abc"
     assert data["results"][0]["cost_estimate"] == 12.50
+    assert data["results"][0]["cost_status"] == "available"
 
 def test_cli_scan_json_flag(monkeypatch, tmp_path):
     monkeypatch.setattr("driftwatch.cli.detect_drift", lambda state, reg, profile=None: ([], 0))
@@ -529,6 +530,57 @@ def test_cli_scan_with_unmanaged_ec2_and_cost_unavailable(monkeypatch, tmp_path)
     assert result.exit_code == 0
     assert "Cost: unavailable" in result.stdout
     assert "$0.00" not in result.stdout
+
+
+def test_cli_scan_with_unmanaged_ec2_and_no_cost_data(monkeypatch, tmp_path):
+    mock_results = [
+        DriftResult(
+            resource_type="aws_instance",
+            resource_id="i-untracked-no-data",
+            drift_type=DriftType.UNMANAGED,
+            resource_name="manual-ec2",
+            live_attributes={"instance_type": "t3.medium"}
+        )
+    ]
+    monkeypatch.setattr("driftwatch.cli.detect_drift", lambda state, reg, profile=None: (mock_results, 1))
+    monkeypatch.setattr("driftwatch.cli.get_resource_cost", lambda rid, profile=None: None)
+    monkeypatch.setattr("driftwatch.cli.get_resource_cost_status", lambda rid, profile=None: "no_data")
+    monkeypatch.setattr("driftwatch.cli.get_drift_explanation", lambda rt, rid, diff, dt: "")
+    monkeypatch.setattr("driftwatch.cli.process_alerts", lambda res: None)
+    monkeypatch.setattr("driftwatch.cli.save_drift_to_db", lambda res: None)
+
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text("{}")
+
+    result = runner.invoke(app, ["scan", "--region", "ap-south-1", "--state", str(state_file)])
+    assert result.exit_code == 0
+    assert "Cost: no cost data" in result.stdout
+    assert "Cost: unavailable" not in result.stdout
+
+
+def test_cli_scan_modified_resource_no_cost_data(monkeypatch, tmp_path):
+    mock_results = [
+        DriftResult(
+            resource_type="aws_instance",
+            resource_id="i-modified-no-data",
+            drift_type=DriftType.MODIFIED,
+            resource_name="modified-ec2",
+            diff={"instance_type": {"terraform": "t3.micro", "live": "t3.large"}}
+        )
+    ]
+    monkeypatch.setattr("driftwatch.cli.detect_drift", lambda state, reg, profile=None: (mock_results, 1))
+    monkeypatch.setattr("driftwatch.cli.get_resource_cost", lambda rid, profile=None: None)
+    monkeypatch.setattr("driftwatch.cli.get_resource_cost_status", lambda rid, profile=None: "no_data")
+    monkeypatch.setattr("driftwatch.cli.get_drift_explanation", lambda rt, rid, diff, dt: "")
+    monkeypatch.setattr("driftwatch.cli.process_alerts", lambda res: None)
+    monkeypatch.setattr("driftwatch.cli.save_drift_to_db", lambda res: None)
+
+    state_file = tmp_path / "terraform.tfstate"
+    state_file.write_text("{}")
+
+    result = runner.invoke(app, ["scan", "--region", "ap-south-1", "--state", str(state_file)])
+    assert result.exit_code == 0
+    assert "Estimated 30d Cost: no cost data" in result.stdout
 
 
 def test_cli_scan_all_aws_fetches_fail_exits_nonzero(tmp_path, monkeypatch):
