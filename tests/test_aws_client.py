@@ -2,6 +2,7 @@ import pytest
 import boto3
 import zipfile
 import io
+from datetime import datetime
 from moto import mock_aws
 from drift_engine.aws_client import (
     get_boto3_session,
@@ -12,7 +13,10 @@ from drift_engine.aws_client import (
     fetch_live_rds_instances,
     fetch_live_lambda_functions,
     fetch_live_iam_roles,
-    get_resource_cost
+    get_resource_cost,
+    get_resource_cost_status,
+    get_resource_cost_details,
+    clear_cost_cache,
 )
 
 REGION = "ap-south-1"
@@ -144,9 +148,141 @@ def test_fetch_live_iam_roles():
     assert role_name in live
     assert live[role_name]["attributes"]["path"] == "/app/"
 
-def test_get_resource_cost_graceful_fallback():
+def test_get_resource_cost_graceful_fallback(monkeypatch):
+    """Hermetic test: When Cost Explorer raises an error, get_resource_cost returns None."""
+    clear_cost_cache()
+
+    class ErrorCE:
+        def get_cost_and_usage(self, **kwargs):
+            raise Exception("CE Service Unavailable")
+
+    monkeypatch.setattr("drift_engine.aws_client.get_boto3_client", lambda s, profile=None, region=None: ErrorCE())
     cost = get_resource_cost("non-existent-res")
     assert cost is None
+    assert get_resource_cost_status("non-existent-res") == "unavailable"
+
+
+def test_get_resource_cost_sums_multiple_periods(monkeypatch):
+    """P2.3: Verify that get_resource_cost sums across ALL returned periods in the 30-day window."""
+    clear_cost_cache()
+
+    class MultiPeriodCE:
+        def get_cost_and_usage(self, **kwargs):
+            return {
+                "ResultsByTime": [
+                    {
+                        "TimePeriod": {"Start": "2026-08-30", "End": "2026-09-01"},
+                        "Total": {"UnblendedCost": {"Amount": "14.25", "Unit": "USD"}}
+                    },
+                    {
+                        "TimePeriod": {"Start": "2026-09-01", "End": "2026-09-29"},
+                        "Total": {"UnblendedCost": {"Amount": "25.75", "Unit": "USD"}}
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("drift_engine.aws_client.get_boto3_client", lambda s, profile=None, region=None: MultiPeriodCE())
+
+    cost = get_resource_cost("i-multi-period")
+    assert cost == 40.00
+    assert get_resource_cost_status("i-multi-period") == "available"
+
+    details = get_resource_cost_details("i-multi-period")
+    assert details["cost"] == 40.00
+    assert details["status"] == "available"
+    assert details["periods_counted"] == 2
+
+
+def test_get_resource_cost_pagination(monkeypatch):
+    """P2.3: Verify that get_resource_cost handles pagination via NextPageToken."""
+    clear_cost_cache()
+    calls = []
+
+    class PaginatedCE:
+        def get_cost_and_usage(self, **kwargs):
+            calls.append(kwargs)
+            if "NextPageToken" not in kwargs:
+                return {
+                    "NextPageToken": "page-2-token",
+                    "ResultsByTime": [
+                        {"Total": {"UnblendedCost": {"Amount": "10.00"}}}
+                    ]
+                }
+            return {
+                "ResultsByTime": [
+                    {"Total": {"UnblendedCost": {"Amount": "15.50"}}}
+                ]
+            }
+
+    monkeypatch.setattr("drift_engine.aws_client.get_boto3_client", lambda s, profile=None, region=None: PaginatedCE())
+
+    cost = get_resource_cost("i-paginated")
+    assert cost == 25.50
+    assert len(calls) == 2
+    assert calls[1].get("NextPageToken") == "page-2-token"
+
+
+def test_get_resource_cost_distinguishes_no_data(monkeypatch):
+    """P2.3: Distinguish 'no cost data' (empty ResultsByTime) from 'query unavailable'."""
+    clear_cost_cache()
+
+    class EmptyCE:
+        def get_cost_and_usage(self, **kwargs):
+            return {"ResultsByTime": []}
+
+    monkeypatch.setattr("drift_engine.aws_client.get_boto3_client", lambda s, profile=None, region=None: EmptyCE())
+
+    cost = get_resource_cost("i-no-data")
+    assert cost is None
+    assert get_resource_cost_status("i-no-data") == "no_data"
+
+    details = get_resource_cost_details("i-no-data")
+    assert details["cost"] is None
+    assert details["status"] == "no_data"
+    assert details["periods_counted"] == 0
+    assert details["error"] is None
+
+
+def test_get_resource_cost_query_unavailable_logs_stderr(monkeypatch, capsys):
+    """P2.3: Query error logs to stderr and marks status as 'unavailable'."""
+    clear_cost_cache()
+
+    class FailingCE:
+        def get_cost_and_usage(self, **kwargs):
+            raise RuntimeError("AccessDeniedException: not authorized to call ce:GetCostAndUsage")
+
+    monkeypatch.setattr("drift_engine.aws_client.get_boto3_client", lambda s, profile=None, region=None: FailingCE())
+
+    cost = get_resource_cost("i-fail-perm")
+    assert cost is None
+    assert get_resource_cost_status("i-fail-perm") == "unavailable"
+
+    captured = capsys.readouterr()
+    assert "Failed to fetch cost for i-fail-perm" in captured.err
+    assert "AccessDeniedException" in captured.err
+
+    details = get_resource_cost_details("i-fail-perm")
+    assert details["status"] == "unavailable"
+    assert "AccessDeniedException" in details["error"]
+
+
+def test_get_resource_cost_utc_date_range(monkeypatch):
+    """P2.3: Date range passed to CE must span exactly 30 days in YYYY-MM-DD."""
+    clear_cost_cache()
+    captured_kwargs = {}
+
+    class InspectingCE:
+        def get_cost_and_usage(self, **kwargs):
+            captured_kwargs.update(kwargs)
+            return {"ResultsByTime": []}
+
+    monkeypatch.setattr("drift_engine.aws_client.get_boto3_client", lambda s, profile=None, region=None: InspectingCE())
+
+    get_resource_cost("i-date-check")
+    time_period = captured_kwargs.get("TimePeriod", {})
+    start = datetime.strptime(time_period["Start"], "%Y-%m-%d")
+    end = datetime.strptime(time_period["End"], "%Y-%m-%d")
+    assert (end - start).days == 30
 
 
 def test_get_boto3_session_with_profile(monkeypatch):
