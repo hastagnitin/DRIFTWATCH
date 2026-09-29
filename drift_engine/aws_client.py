@@ -1,7 +1,7 @@
 import os
 import sys
 import boto3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 def get_boto3_session(profile: str = None, region: str = None) -> boto3.Session:
     actual_profile = profile or os.environ.get("AWS_PROFILE")
@@ -229,41 +229,114 @@ def fetch_live_iam_roles(region: str, profile: str = None) -> dict:
     return live
 
 _cost_cache = {}
+_cost_details_cache = {}
 
 def clear_cost_cache():
-    global _cost_cache
+    global _cost_cache, _cost_details_cache
     _cost_cache.clear()
+    _cost_details_cache.clear()
+
+def get_resource_cost_details(resource_id: str, profile: str = None) -> dict:
+    """Fetch 30-day unblended cost for a given resource from AWS Cost Explorer.
+
+    Queries all returned periods across the 30-day UTC window, handles pagination,
+    and returns structured details distinguishing 'available', 'no_data', and 'unavailable'.
+    """
+    cache_key = (resource_id, profile)
+    if cache_key in _cost_details_cache:
+        return _cost_details_cache[cache_key]
+
+    now_utc = datetime.now(timezone.utc).date()
+    end_date = now_utc.strftime("%Y-%m-%d")
+    start_date = (now_utc - timedelta(days=30)).strftime("%Y-%m-%d")
+
+    params = {
+        "TimePeriod": {"Start": start_date, "End": end_date},
+        "Granularity": "MONTHLY",
+        "Metrics": ["UnblendedCost"],
+        "Filter": {
+            "Dimensions": {
+                "Key": "RESOURCE_ID",
+                "Values": [resource_id]
+            }
+        }
+    }
+
+    try:
+        client = get_boto3_client("ce", profile=profile, region="us-east-1")
+        total_cost = 0.0
+        periods_found = 0
+        has_cost_entry = False
+
+        while True:
+            response = client.get_cost_and_usage(**params)
+            results_by_time = response.get("ResultsByTime", [])
+            for period in results_by_time:
+                periods_found += 1
+                unblended = period.get("Total", {}).get("UnblendedCost", {})
+                amount_str = unblended.get("Amount")
+                if amount_str is not None:
+                    total_cost += float(amount_str)
+                    has_cost_entry = True
+
+            next_token = response.get("NextPageToken")
+            if not next_token:
+                break
+            params["NextPageToken"] = next_token
+
+        if not has_cost_entry or periods_found == 0:
+            details = {
+                "cost": None,
+                "status": "no_data",
+                "start_date": start_date,
+                "end_date": end_date,
+                "period_days": 30,
+                "periods_counted": periods_found,
+                "error": None
+            }
+        else:
+            details = {
+                "cost": round(total_cost, 2),
+                "status": "available",
+                "start_date": start_date,
+                "end_date": end_date,
+                "period_days": 30,
+                "periods_counted": periods_found,
+                "error": None
+            }
+        _cost_cache[cache_key] = details["cost"]
+        _cost_details_cache[cache_key] = details
+        return details
+    except Exception as e:
+        print(f"Failed to fetch cost for {resource_id}: {e}", file=sys.stderr)
+        details = {
+            "cost": None,
+            "status": "unavailable",
+            "start_date": start_date,
+            "end_date": end_date,
+            "period_days": 30,
+            "periods_counted": 0,
+            "error": str(e)
+        }
+        _cost_cache[cache_key] = None
+        _cost_details_cache[cache_key] = details
+        return details
 
 def get_resource_cost(resource_id: str, profile: str = None) -> float | None:
     cache_key = (resource_id, profile)
     if cache_key in _cost_cache:
         return _cost_cache[cache_key]
+    details = get_resource_cost_details(resource_id, profile=profile)
+    return details["cost"]
 
-    try:
-        client = get_boto3_client("ce", profile=profile, region="us-east-1")
-
-        end_date = datetime.today().strftime("%Y-%m-%d")
-        start_date = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
-
-        response = client.get_cost_and_usage(
-            TimePeriod={"Start": start_date, "End": end_date},
-            Granularity="MONTHLY",
-            Metrics=["UnblendedCost"],
-            Filter={
-                "Dimensions": {
-                    "Key": "RESOURCE_ID",
-                    "Values": [resource_id]
-                }
-            }
-        )
-
-        results_by_time = response.get("ResultsByTime", [])
-        if not results_by_time:
-            _cost_cache[cache_key] = None
-            return None
-        usd_cost = float(results_by_time[0]["Total"]["UnblendedCost"]["Amount"])
-        _cost_cache[cache_key] = usd_cost
-        return usd_cost
-    except Exception:
-        _cost_cache[cache_key] = None
-        return None
+def get_resource_cost_status(resource_id: str, profile: str = None) -> str:
+    cache_key = (resource_id, profile)
+    if cache_key in _cost_details_cache:
+        return _cost_details_cache[cache_key]["status"]
+    if cache_key in _cost_cache:
+        val = _cost_cache[cache_key]
+        if isinstance(val, (int, float)):
+            return "available"
+        return "unavailable"
+    details = get_resource_cost_details(resource_id, profile=profile)
+    return details["status"]
