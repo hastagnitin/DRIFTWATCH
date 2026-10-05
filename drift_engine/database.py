@@ -86,8 +86,9 @@ def save_drift_to_db(drift_results: list):
         print("⚠️ DB_USER or DB_PASSWORD not found in environment. Skipping database save.")
         return
 
-    import importlib.util
-    if importlib.util.find_spec("psycopg2") is None:
+    try:
+        import psycopg2  # noqa: F401
+    except ImportError:
         print("⚠️ PostgreSQL credentials provided, but 'psycopg2' is not installed. Run 'pip install driftwatch-cli[postgres]' to enable database logging.")
         return
 
