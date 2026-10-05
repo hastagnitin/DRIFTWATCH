@@ -29,7 +29,7 @@ def test_deterministic_remediation_suggestions():
 def test_explain_without_api_key(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     explanation = get_drift_explanation("aws_instance", "i-123", {}, "MODIFIED")
-    assert "AI explanation unavailable" in explanation
+    assert explanation == ""
 
 def test_explain_with_mock_groq_api(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "gsk-mock-key")

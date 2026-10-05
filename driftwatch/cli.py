@@ -39,7 +39,7 @@ def version_callback(value: bool):
             try:
                 from driftwatch import __version__ as ver
             except Exception:
-                ver = "3.0.2"
+                ver = "3.0.4"
         typer.echo(f"driftwatch-cli version {ver}")
         raise typer.Exit()
 
@@ -280,6 +280,8 @@ def scan(
 
     if not is_json:
         typer.echo(f"Scanning AWS Infrastructure in {actual_region}...\n")
+        if not os.environ.get("GROQ_API_KEY", "").strip():
+            typer.secho("ℹ AI summaries disabled (no GROQ_API_KEY set) — drift detection still runs normally.", fg=typer.colors.BRIGHT_BLACK)
 
     try:
         scan_res = _run_scan(state, actual_region, profile=profile, allow_partial=allow_partial)

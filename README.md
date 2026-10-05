@@ -5,7 +5,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/driftwatch-cli?style=flat-square&color=blue)](https://pypi.org/project/driftwatch-cli/)
 [![Downloads](https://img.shields.io/pypi/dm/driftwatch-cli?style=flat-square&color=green)](https://pypi.org/project/driftwatch-cli/)
 [![Python versions](https://img.shields.io/pypi/pyversions/driftwatch-cli?style=flat-square)](https://pypi.org/project/driftwatch-cli/)
-[![License](https://img.shields.io/pypi/l/driftwatch-cli?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/pypi/l/driftwatch-cli?style=flat-square)](https://github.com/hastagnitin/driftwatch/blob/main/LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/hastagnitin/driftwatch?style=flat-square)](https://github.com/hastagnitin/driftwatch/commits/main)
 [![Open issues](https://img.shields.io/github/issues/hastagnitin/driftwatch?style=flat-square)](https://github.com/hastagnitin/driftwatch/issues)
 
@@ -462,5 +462,5 @@ One or more AWS services failed to respond (e.g., IAM throttling or missing perm
 
 ## 📄 License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License — see [LICENSE](https://github.com/hastagnitin/driftwatch/blob/main/LICENSE) for details.
 

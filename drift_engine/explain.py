@@ -67,7 +67,7 @@ def get_drift_explanation(resource_type: str, resource_id: str, diff_data: dict,
     api_key = os.environ.get("GROQ_API_KEY", "").strip()
 
     if not api_key:
-        return "AI explanation unavailable: GROQ_API_KEY not set in environment."
+        return ""
 
     url = "https://api.groq.com/openai/v1/chat/completions"
     sanitized_id = sanitize_value(resource_id)
