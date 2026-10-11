@@ -30,6 +30,24 @@ def test_cli_scan_success_no_drift(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "No drift detected" in result.stdout
 
+
+@pytest.mark.parametrize("output", ["text", "json"])
+@pytest.mark.parametrize("threshold", ["LOW", "MEDIUM", "HIGH", "CRITICAL"])
+def test_clean_scan_never_trips_fail_on(monkeypatch, output, threshold):
+    monkeypatch.setattr("driftwatch.cli._run_scan", lambda *args, **kwargs: ([], 0))
+    args = ["scan", "--region", "us-east-1", "--fail-on", threshold]
+    if output == "json":
+        args.extend(["--output", "json"])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 0, result.stdout
+    if output == "json":
+        report_text = result.stdout[result.stdout.index("{"):]
+        assert json.loads(report_text)["drift_count"] == 0
+    else:
+        assert "No drift detected" in result.stdout
+
 @mock_aws
 def test_cli_scan_zero_drift_with_matching_state(tmp_path):
     region = "ap-south-1"
