@@ -247,6 +247,54 @@ def test_driftwatch_engine_namespaced_alias():
     assert hasattr(driftwatch.engine, "get_severity")
 
 
+def test_drift_engine_exports_from_installed_wheel(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parents[1]
+    wheel_dir = tmp_path / "wheels"
+    install_dir = tmp_path / "installed"
+    wheel_dir.mkdir()
+
+    subprocess.run(
+        [
+            sys.executable, "-m", "pip", "wheel", "--no-deps",
+            "--no-build-isolation", "-w", str(wheel_dir), str(project_root),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    wheel = next(wheel_dir.glob("*.whl"))
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--no-deps", "--target", str(install_dir), str(wheel)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(install_dir)
+    env["PYTHON_DOTENV_DISABLED"] = "1"
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import drift_engine, driftwatch; "
+            "assert callable(drift_engine.detect_drift); "
+            "assert callable(drift_engine.get_severity); "
+            "assert callable(driftwatch.engine.detect_drift)",
+        ],
+        cwd=tmp_path,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 @mock_aws
 def test_load_terraform_state_from_s3_success():
     region = "ap-south-1"
