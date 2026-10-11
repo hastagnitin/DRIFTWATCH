@@ -118,7 +118,7 @@ def _render_report(results: list, total_scanned: int, profile: str = None, faile
 
     if not results:
         typer.secho("No drift detected. Infrastructure matches IaC.", fg=typer.colors.GREEN)
-        return "LOW", 0, 0
+        return "NONE", 0, 0
 
     highest_severity_found = "LOW"
     crit_count = 0
@@ -248,7 +248,7 @@ def _dispatch_alerts(results: list):
     save_drift_to_db(results)
 
 def _check_gate(highest_severity_found: str, fail_on: str = None):
-    if fail_on and SEVERITY_RANK.get(highest_severity_found, 0) >= SEVERITY_RANK.get(fail_on.upper(), 0):
+    if fail_on and highest_severity_found in SEVERITY_RANK and SEVERITY_RANK[highest_severity_found] >= SEVERITY_RANK.get(fail_on.upper(), 0):
         typer.secho(
             f"\nBUILD FAILED: highest severity found is {highest_severity_found} (gate: {fail_on.upper()})",
             fg=typer.colors.RED, bold=True,
