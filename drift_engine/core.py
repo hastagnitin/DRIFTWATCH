@@ -18,6 +18,12 @@ from drift_engine.aws_client import (
 SEVERITY_LEVELS = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 
 def normalize_sg_rules(rules) -> list:
+    """Normalize security group rules for comparison.
+
+    F2: Handles IPv6 CIDRs, prefix list IDs, and security group references
+    in addition to IPv4 CIDRs.
+    F17: Merges rules with same protocol/port by unioning source ranges.
+    """
     normalized = []
     if not isinstance(rules, list):
         return normalized
@@ -30,19 +36,59 @@ def normalize_sg_rules(rules) -> list:
             else:
                 cidrs = tuple()
 
+            ipv6_cidrs = rule.get('ipv6_cidr_blocks') or []
+            if isinstance(ipv6_cidrs, list):
+                ipv6_cidrs = tuple(sorted(ipv6_cidrs))
+            else:
+                ipv6_cidrs = tuple()
+
+            prefix_ids = rule.get('prefix_list_ids') or []
+            if isinstance(prefix_ids, list):
+                prefix_ids = tuple(sorted(prefix_ids))
+            else:
+                prefix_ids = tuple()
+
+            sg_refs = rule.get('security_groups') or []
+            if isinstance(sg_refs, list):
+                sg_refs = tuple(sorted(sg_refs))
+            else:
+                sg_refs = tuple()
+
             normalized.append({
                 'from_port': rule.get('from_port'),
                 'to_port': rule.get('to_port'),
                 'protocol': rule.get('protocol'),
-                'cidr_blocks': cidrs
+                'cidr_blocks': cidrs,
+                'ipv6_cidr_blocks': ipv6_cidrs,
+                'prefix_list_ids': prefix_ids,
+                'security_groups': sg_refs
             })
 
-    final_rules = []
-    for t in {tuple(sorted(d.items())) for d in normalized}:
-        rule_dict = dict(t)
-        rule_dict['cidr_blocks'] = list(rule_dict['cidr_blocks'])
-        final_rules.append(rule_dict)
+    # F17: Merge rules with the same protocol/port by unioning source ranges
+    merged = {}
+    for rule in normalized:
+        key = (rule['from_port'], rule['to_port'], rule['protocol'])
+        if key in merged:
+            existing = merged[key]
+            existing['cidr_blocks'] = tuple(sorted(set(existing['cidr_blocks']) | set(rule['cidr_blocks'])))
+            existing['ipv6_cidr_blocks'] = tuple(sorted(set(existing['ipv6_cidr_blocks']) | set(rule['ipv6_cidr_blocks'])))
+            existing['prefix_list_ids'] = tuple(sorted(set(existing['prefix_list_ids']) | set(rule['prefix_list_ids'])))
+            existing['security_groups'] = tuple(sorted(set(existing['security_groups']) | set(rule['security_groups'])))
+        else:
+            merged[key] = rule.copy()
 
+    # Deduplicate and convert tuples back to lists for comparison
+    final_rules = []
+    for rule in merged.values():
+        rule_copy = rule.copy()
+        rule_copy['cidr_blocks'] = list(rule_copy['cidr_blocks'])
+        rule_copy['ipv6_cidr_blocks'] = list(rule_copy['ipv6_cidr_blocks'])
+        rule_copy['prefix_list_ids'] = list(rule_copy['prefix_list_ids'])
+        rule_copy['security_groups'] = list(rule_copy['security_groups'])
+        final_rules.append(rule_copy)
+
+    # Sort by port/protocol for deterministic comparison
+    final_rules.sort(key=lambda r: (r.get('from_port') or 0, r.get('to_port') or 0, r.get('protocol') or ''))
     return final_rules
 
 def compare_attributes(tf, live, r_type) -> dict:
@@ -66,6 +112,17 @@ def compare_attributes(tf, live, r_type) -> dict:
 
     return diff
 
+
+def _rekey_live(live_dict):
+    """Re-key a live resource dict from {id: resource} to {(type, id): resource}.
+
+    F5: Prevents collisions when different resource types share the same ID.
+    """
+    if not live_dict:
+        return {}
+    return {(v["type"], k): v for k, v in live_dict.items()}
+
+
 class DriftScanResult(tuple):
     def __new__(cls, results, total_scanned, failed_services=None):
         return super().__new__(cls, (results, total_scanned))
@@ -77,7 +134,6 @@ class DriftScanResult(tuple):
 
 def detect_drift(tf_state_path: str, region: str, profile: str = None, allow_partial: bool = False):
     tf_resources = load_terraform_state(tf_state_path, profile=profile)
-
 
     failed_types = set()
 
@@ -119,55 +175,72 @@ def detect_drift(tf_state_path: str, region: str, profile: str = None, allow_par
         if not allow_partial:
             raise RuntimeError(f"Failed to fetch live AWS resources for: {', '.join(sorted(failed_types))}. Pass --allow-partial to scan healthy services anyway.")
 
+    # F5: Re-key live resources by (type, id) to prevent cross-type collisions
+    live_resources = {
+        **_rekey_live(live_ec2),
+        **_rekey_live(live_s3),
+        **_rekey_live(live_sg),
+        **_rekey_live(live_rds),
+        **_rekey_live(live_lambda),
+        **_rekey_live(live_iam),
+    }
 
-    live_resources = {**live_ec2, **live_s3, **live_sg, **live_rds, **live_lambda, **live_iam}
+    # Ensure all TF resources are keyed by (type, id)
+    canonical_tf = {}
+    for k, v in tf_resources.items():
+        if isinstance(k, tuple) and len(k) == 2:
+            canonical_tf[k] = v
+        elif isinstance(k, str):
+            r_type = v.get("type", "unknown") if isinstance(v, dict) else "unknown"
+            canonical_tf[(r_type, k)] = v
 
     results = []
-    all_ids = set(tf_resources) | set(live_resources)
-    total_scanned = len(all_ids)
+    all_keys = set(canonical_tf) | set(live_resources)
+    total_scanned = len(all_keys)
 
-    for rid in all_ids:
-        in_tf = rid in tf_resources
-        in_live = rid in live_resources
+    for composite_key in all_keys:
+        r_type_key, rid = composite_key
+        in_tf = composite_key in canonical_tf
+        in_live = composite_key in live_resources
 
         res_name = "Unknown"
         if in_tf:
-            res_name = tf_resources[rid]["name"]
+            res_name = canonical_tf[composite_key]["name"]
         elif in_live:
-            res_name = live_resources[rid]["name"]
+            res_name = live_resources[composite_key]["name"]
 
         if in_tf and not in_live:
-            if tf_resources[rid]["type"] in failed_types:
+            if canonical_tf[composite_key]["type"] in failed_types:
                 continue
             results.append(DriftResult(
-                resource_type=tf_resources[rid]["type"],
+                resource_type=canonical_tf[composite_key]["type"],
                 resource_id=rid,
                 drift_type=DriftType.MISSING,
                 resource_name=res_name,
-                tf_attributes=tf_resources[rid]["attributes"]
+                tf_attributes=canonical_tf[composite_key]["attributes"]
             ))
         elif in_live and not in_tf:
             results.append(DriftResult(
-                resource_type=live_resources[rid]["type"],
+                resource_type=live_resources[composite_key]["type"],
                 resource_id=rid,
                 drift_type=DriftType.UNMANAGED,
                 resource_name=res_name,
-                live_attributes=live_resources[rid]["attributes"]
+                live_attributes=live_resources[composite_key]["attributes"]
             ))
         else:
             diff = compare_attributes(
-                tf_resources[rid]["attributes"],
-                live_resources[rid]["attributes"],
-                tf_resources[rid]["type"]
+                canonical_tf[composite_key]["attributes"],
+                live_resources[composite_key]["attributes"],
+                canonical_tf[composite_key]["type"]
             )
             if diff:
                 results.append(DriftResult(
-                    resource_type=tf_resources[rid]["type"],
+                    resource_type=canonical_tf[composite_key]["type"],
                     resource_id=rid,
                     drift_type=DriftType.MODIFIED,
                     resource_name=res_name,
-                    tf_attributes=tf_resources[rid]["attributes"],
-                    live_attributes=live_resources[rid]["attributes"],
+                    tf_attributes=canonical_tf[composite_key]["attributes"],
+                    live_attributes=live_resources[composite_key]["attributes"],
                     diff=diff
                 ))
 
