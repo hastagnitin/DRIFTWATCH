@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 from contextlib import contextmanager
 
@@ -124,4 +125,4 @@ def save_drift_to_db(drift_results: list):
             cursor.close()
             print("✅ Drift history saved to PostgreSQL database.")
     except Exception as e:
-        print(f"❌ Database error: {e}")
+        print(f"❌ Database error: {e}", file=sys.stderr)
