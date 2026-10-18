@@ -253,8 +253,8 @@ def remediate_iam_role(role_name: str, diff_data: dict, env: str, region: str = 
                 except Exception as e:
                     print(f"❌ Failed to attach policy to {role_name}: {e}")
 
-def process_remediation(drift_results: list, auto_approve: bool = False, profile: str = None):
-    region = os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
+def process_remediation(drift_results: list, auto_approve: bool = False, profile: str = None, region: str = None):
+    region = region or os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
     for result in drift_results:
         attrs = result.live_attributes or result.tf_attributes or {}
         tags = attrs.get('tags', {})

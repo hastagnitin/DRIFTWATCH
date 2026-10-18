@@ -1,4 +1,5 @@
 import os
+import sys
 import ssl
 import smtplib
 import requests
@@ -29,7 +30,7 @@ def send_telegram_alert(message: str):
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
 
     if not bot_token or not chat_id:
-        print("Telegram credentials missing in environment variables.")
+        print("Telegram credentials missing in environment variables.", file=sys.stderr)
         return
 
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -41,9 +42,9 @@ def send_telegram_alert(message: str):
     try:
         response = requests.post(url, json=payload, timeout=15)
         response.raise_for_status()
-        print("Telegram alert sent successfully.")
+        print("Telegram alert sent successfully.", file=sys.stderr)
     except Exception as e:
-        print(f"Failed to send Telegram alert: {e}")
+        print(f"Failed to send Telegram alert: {e}", file=sys.stderr)
 
 def send_slack_alert(webhook_url: str, drift_results: list):
     if not webhook_url:
@@ -57,9 +58,9 @@ def send_slack_alert(webhook_url: str, drift_results: list):
     try:
         response = requests.post(webhook_url, json=payload, timeout=15)
         response.raise_for_status()
-        print("Slack alert sent successfully.")
+        print("Slack alert sent successfully.", file=sys.stderr)
     except Exception as e:
-        print(f"Failed to send Slack alert: {e}")
+        print(f"Failed to send Slack alert: {e}", file=sys.stderr)
 
 def send_email_alert(smtp_server: str, smtp_port: int, sender_email: str, sender_password: str, recipient_email: str, drift_results: list):
     if not all([smtp_server, sender_email, sender_password, recipient_email]):
@@ -88,9 +89,9 @@ def send_email_alert(smtp_server: str, smtp_port: int, sender_email: str, sender
         server.login(sender_email, sender_password)
         server.send_message(msg)
         server.quit()
-        print("Email alert sent successfully.")
+        print("Email alert sent successfully.", file=sys.stderr)
     except Exception as e:
-        print(f"Failed to send Email alert: {e}")
+        print(f"Failed to send Email alert: {e}", file=sys.stderr)
 
 
 def process_alerts(drift_results: list):
@@ -99,7 +100,8 @@ def process_alerts(drift_results: list):
 
     slack_webhook = os.environ.get("SLACK_WEBHOOK_URL")
     smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", 587))
+    smtp_port_str = os.environ.get("SMTP_PORT", "").strip()
+    smtp_port = int(smtp_port_str) if smtp_port_str else 587
     sender_email = os.environ.get("SENDER_EMAIL")
     sender_password = os.environ.get("SENDER_PASSWORD")
     recipient_email = os.environ.get("RECIPIENT_EMAIL")
