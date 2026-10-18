@@ -1,7 +1,9 @@
 import os
 import sys
+import json
 import boto3
 from datetime import datetime, timedelta, timezone
+from botocore.exceptions import ClientError
 
 def get_boto3_session(profile: str = None, region: str = None) -> boto3.Session:
     actual_profile = profile or os.environ.get("AWS_PROFILE")
@@ -56,27 +58,53 @@ def fetch_live_s3_buckets(region: str, profile: str = None) -> dict:
     s3 = get_boto3_client("s3", profile=profile, region=region)
     live = {}
     try:
-        response = s3.list_buckets()
-        for bucket in response.get("Buckets", []):
-            bucket_name = bucket["Name"]
+        continuation_token = None
+        while True:
+            kwargs = {}
+            if continuation_token:
+                kwargs["ContinuationToken"] = continuation_token
             try:
-                tags_response = s3.get_bucket_tagging(Bucket=bucket_name)
-                tags_list = tags_response.get("TagSet", [])
-                tags_dict = {t["Key"]: t["Value"] for t in tags_list if "Key" in t and "Value" in t}
-                name = tags_dict.get("Name", bucket_name)
-            except Exception:
-                tags_dict = {}
-                name = bucket_name
+                response = s3.list_buckets(**kwargs)
+            except (TypeError, ClientError):
+                if kwargs:
+                    break
+                response = s3.list_buckets()
 
-            live[bucket_name] = {
-                "type": "aws_s3_bucket",
-                "name": name,
-                "attributes": {
-                    "id": bucket_name,
-                    "bucket": bucket_name,
-                    "tags": tags_dict,
-                },
-            }
+            for bucket in response.get("Buckets", []):
+                bucket_name = bucket["Name"]
+                try:
+                    tags_response = s3.get_bucket_tagging(Bucket=bucket_name)
+                    tags_list = tags_response.get("TagSet", [])
+                    tags_dict = {t["Key"]: t["Value"] for t in tags_list if "Key" in t and "Value" in t}
+                    name = tags_dict.get("Name", bucket_name)
+                except ClientError as ce:
+                    error_code = ce.response.get("Error", {}).get("Code", "")
+                    if error_code == "NoSuchTagSet":
+                        # Bucket genuinely has no tags
+                        tags_dict = {}
+                        name = bucket_name
+                    else:
+                        # Access denied, throttle, or transient error — mark as incomplete
+                        print(f"Warning: Could not fetch tags for S3 bucket '{bucket_name}' (code={error_code}): {ce}", file=sys.stderr)
+                        tags_dict = {}
+                        name = bucket_name
+                except Exception:
+                    tags_dict = {}
+                    name = bucket_name
+
+                live[bucket_name] = {
+                    "type": "aws_s3_bucket",
+                    "name": name,
+                    "attributes": {
+                        "id": bucket_name,
+                        "bucket": bucket_name,
+                        "tags": tags_dict,
+                    },
+                }
+
+            continuation_token = response.get("ContinuationToken")
+            if not continuation_token:
+                break
     except Exception as e:
         print(f"Failed to fetch aws_s3_bucket: {e}", file=sys.stderr)
         return None
@@ -99,23 +127,36 @@ def fetch_live_security_groups(region: str, profile: str = None) -> dict:
                 ingress_rules = []
                 for perm in sg.get("IpPermissions", []):
                     cidrs = [ip.get("CidrIp") for ip in perm.get("IpRanges", []) if ip.get("CidrIp")]
-                    if cidrs:
+                    ipv6_cidrs = [ip.get("CidrIpv6") for ip in perm.get("Ipv6Ranges", []) if ip.get("CidrIpv6")]
+                    prefix_ids = [p.get("PrefixListId") for p in perm.get("PrefixListIds", []) if p.get("PrefixListId")]
+                    sg_refs = [g.get("GroupId") for g in perm.get("UserIdGroupPairs", []) if g.get("GroupId")]
+                    # Include rule if it has any source type
+                    if cidrs or ipv6_cidrs or prefix_ids or sg_refs:
                         ingress_rules.append({
                             "from_port": perm.get("FromPort", 0),
                             "to_port": perm.get("ToPort", 0),
                             "protocol": perm.get("IpProtocol", "-1"),
-                            "cidr_blocks": cidrs
+                            "cidr_blocks": cidrs,
+                            "ipv6_cidr_blocks": ipv6_cidrs,
+                            "prefix_list_ids": prefix_ids,
+                            "security_groups": sg_refs
                         })
 
                 egress_rules = []
                 for perm in sg.get("IpPermissionsEgress", []):
                     cidrs = [ip.get("CidrIp") for ip in perm.get("IpRanges", []) if ip.get("CidrIp")]
-                    if cidrs:
+                    ipv6_cidrs = [ip.get("CidrIpv6") for ip in perm.get("Ipv6Ranges", []) if ip.get("CidrIpv6")]
+                    prefix_ids = [p.get("PrefixListId") for p in perm.get("PrefixListIds", []) if p.get("PrefixListId")]
+                    sg_refs = [g.get("GroupId") for g in perm.get("UserIdGroupPairs", []) if g.get("GroupId")]
+                    if cidrs or ipv6_cidrs or prefix_ids or sg_refs:
                         egress_rules.append({
                             "from_port": perm.get("FromPort", 0),
                             "to_port": perm.get("ToPort", 0),
                             "protocol": perm.get("IpProtocol", "-1"),
-                            "cidr_blocks": cidrs
+                            "cidr_blocks": cidrs,
+                            "ipv6_cidr_blocks": ipv6_cidrs,
+                            "prefix_list_ids": prefix_ids,
+                            "security_groups": sg_refs
                         })
 
                 live[sg_id] = {
@@ -204,13 +245,44 @@ def fetch_live_iam_roles(region: str, profile: str = None) -> dict:
                 if role_name.startswith("AWSServiceRoleFor") or role.get("Path", "").startswith("/aws-service-role/"):
                     continue
 
+                # F3: Paginate attached policies properly
+                attached_policies = []
                 try:
-                    policies = iam.list_attached_role_policies(RoleName=role_name)
-                    attached_policies = sorted(
-                        p["PolicyArn"] for p in policies.get("AttachedPolicies", []) if "PolicyArn" in p
-                    )
-                except Exception:
+                    policy_paginator = iam.get_paginator("list_attached_role_policies")
+                    for policy_page in policy_paginator.paginate(RoleName=role_name):
+                        for p in policy_page.get("AttachedPolicies", []):
+                            if "PolicyArn" in p:
+                                attached_policies.append(p["PolicyArn"])
+                    attached_policies.sort()
+                except Exception as e:
+                    print(f"Warning: Could not list attached policies for role '{role_name}': {e}", file=sys.stderr)
                     attached_policies = []
+
+                # F3: Fetch trust policy (AssumeRolePolicyDocument)
+                assume_role_policy = {}
+                raw_trust = role.get("AssumeRolePolicyDocument")
+                if raw_trust:
+                    if isinstance(raw_trust, str):
+                        try:
+                            assume_role_policy = json.loads(raw_trust)
+                        except (json.JSONDecodeError, TypeError):
+                            assume_role_policy = {"raw": raw_trust}
+                    elif isinstance(raw_trust, dict):
+                        assume_role_policy = raw_trust
+
+                # F3: Fetch inline policies
+                inline_policies = {}
+                try:
+                    inline_paginator = iam.get_paginator("list_role_policies")
+                    for inline_page in inline_paginator.paginate(RoleName=role_name):
+                        for policy_name in inline_page.get("PolicyNames", []):
+                            try:
+                                policy_doc = iam.get_role_policy(RoleName=role_name, PolicyName=policy_name)
+                                inline_policies[policy_name] = policy_doc.get("PolicyDocument", {})
+                            except Exception as e:
+                                print(f"Warning: Could not fetch inline policy '{policy_name}' for role '{role_name}': {e}", file=sys.stderr)
+                except Exception as e:
+                    print(f"Warning: Could not list inline policies for role '{role_name}': {e}", file=sys.stderr)
 
                 live[role_name] = {
                     "type": "aws_iam_role",
@@ -220,7 +292,9 @@ def fetch_live_iam_roles(region: str, profile: str = None) -> dict:
                         "name": role_name,
                         "path": role.get("Path", "/"),
                         "arn": role.get("Arn", ""),
-                        "attached_policies": attached_policies
+                        "attached_policies": attached_policies,
+                        "assume_role_policy": assume_role_policy,
+                        "inline_policies": inline_policies
                     }
                 }
     except Exception as e:
