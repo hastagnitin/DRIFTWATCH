@@ -1,5 +1,7 @@
 import os
+import sys
 import json
+import contextlib
 import typer
 import boto3
 import importlib.metadata
@@ -20,6 +22,24 @@ from drift_engine.database import save_drift_to_db
 from drift_engine.remediation import process_remediation
 
 SEVERITY_RANK = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+
+SENSITIVE_KEY_PATTERNS = {
+    "password", "secret", "token", "credential", "api_key", "apikey",
+    "private_key", "access_key", "auth", "signature", "passphrase"
+}
+
+def _redact_sensitive_dict(data):
+    if isinstance(data, dict):
+        cleaned = {}
+        for k, v in data.items():
+            if any(p in str(k).lower() for p in SENSITIVE_KEY_PATTERNS):
+                cleaned[k] = "[REDACTED]"
+            else:
+                cleaned[k] = _redact_sensitive_dict(v)
+        return cleaned
+    elif isinstance(data, list):
+        return [_redact_sensitive_dict(item) for item in data]
+    return data
 
 class SeverityChoice(str, Enum):
     LOW = "LOW"
@@ -153,7 +173,7 @@ def _render_report(results: list, total_scanned: int, profile: str = None, faile
 
         if r.drift_type == DriftType.UNMANAGED:
             if cost_status == "available" and cost_val is not None:
-                cost_str = f"+${cost_val:,.2f}/month (untracked)"
+                cost_str = f"+${cost_val:,.2f}/month (30-day estimate, untracked)"
             elif cost_status == "no_data":
                 cost_str = "no cost data"
             else:
@@ -191,7 +211,7 @@ def _render_report(results: list, total_scanned: int, profile: str = None, faile
     typer.echo(f"Total drift found: {len(results)} resources  |  CRITICAL: {crit_count}  HIGH: {high_count}\n")
     return highest_severity_found, crit_count, high_count
 
-def _render_json_report(results: list, total_scanned: int, region: str, state_path: str, profile: str = None, failed_services: list = None) -> tuple[str, dict]:
+def _render_json_report(results: list, total_scanned: int, region: str, state_path: str, profile: str = None, failed_services: list = None, include_raw: bool = False) -> tuple[str, dict]:
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     highest_severity_found = "LOW" if results else "NONE"
     formatted_results = []
@@ -216,15 +236,23 @@ def _render_json_report(results: list, total_scanned: int, region: str, state_pa
             ai_text = get_drift_explanation(r.resource_type, r.resource_id, diff_data, r.drift_type.value)
             r.ai_analysis = ai_text
 
+        # F4: Redact sensitive fields and omit raw attribute maps unless explicitly requested
+        if include_raw:
+            live_attrs = _redact_sensitive_dict(r.live_attributes or {})
+            tf_attrs = _redact_sensitive_dict(r.tf_attributes or {})
+        else:
+            live_attrs = {}
+            tf_attrs = {}
+
         formatted_results.append({
             "resource_id": r.resource_id,
             "resource_type": r.resource_type,
             "resource_name": r.resource_name,
             "drift_type": r.drift_type.value,
             "severity": sev,
-            "diff": r.diff or {},
-            "live_attributes": r.live_attributes or {},
-            "tf_attributes": r.tf_attributes or {},
+            "diff": _redact_sensitive_dict(r.diff or {}),
+            "live_attributes": live_attrs,
+            "tf_attributes": tf_attrs,
             "ai_analysis": ai_text,
             "cost_estimate": cost_val,
             "cost_status": cost_status
@@ -243,11 +271,20 @@ def _render_json_report(results: list, total_scanned: int, region: str, state_pa
     typer.echo(json.dumps(report, indent=2))
     return highest_severity_found, report
 
-def _dispatch_alerts(results: list):
-    process_alerts(results)
-    save_drift_to_db(results)
+def _dispatch_alerts(results: list, json_mode: bool = False):
+    # F8: In JSON mode, redirect integration prints to stderr to ensure stdout purity
+    if json_mode:
+        with contextlib.redirect_stdout(sys.stderr):
+            process_alerts(results)
+            save_drift_to_db(results)
+    else:
+        process_alerts(results)
+        save_drift_to_db(results)
 
-def _check_gate(highest_severity_found: str, fail_on: str = None):
+def _check_gate(highest_severity_found: str, fail_on: str = None, has_findings: bool = True):
+    # F7: Clean scans (no drift findings) must never fail the gate
+    if not has_findings or highest_severity_found == "NONE":
+        return
     if fail_on and highest_severity_found in SEVERITY_RANK and SEVERITY_RANK[highest_severity_found] >= SEVERITY_RANK.get(fail_on.upper(), 0):
         typer.secho(
             f"\nBUILD FAILED: highest severity found is {highest_severity_found} (gate: {fail_on.upper()})",
@@ -268,6 +305,7 @@ def scan(
     ),
     output: OutputFormat = typer.Option(OutputFormat.text, "--output", "-o", case_sensitive=False, help="Output format: 'text' or 'json'."),
     json_output: bool = typer.Option(False, "--json", help="Shorthand for --output json."),
+    include_raw: bool = typer.Option(False, "--include-raw", help="Include raw Terraform and live attributes in JSON output (sensitive values redacted)."),
     allow_partial: bool = typer.Option(False, "--allow-partial", help="Allow partial scan results if some AWS services fail to fetch.")
 ):
     """Scan infrastructure against Terraform state and identify drift."""
@@ -277,6 +315,9 @@ def scan(
         raise typer.Exit(1)
 
     is_json = (output == OutputFormat.json or json_output)
+
+    if include_raw and is_json:
+        typer.secho("Warning: --include-raw exports raw resource attribute maps.", fg=typer.colors.YELLOW, err=True)
 
     if not is_json:
         typer.echo(f"Scanning AWS Infrastructure in {actual_region}...\n")
@@ -290,16 +331,16 @@ def scan(
         failed_services = getattr(scan_res, "failed_services", [])
 
         if is_json:
-            highest_severity, _ = _render_json_report(results, total_scanned, actual_region, state, profile=profile, failed_services=failed_services)
+            highest_severity, _ = _render_json_report(results, total_scanned, actual_region, state, profile=profile, failed_services=failed_services, include_raw=include_raw)
         else:
             highest_severity, _, _ = _render_report(results, total_scanned, profile=profile, failed_services=failed_services)
 
         if results:
-            _dispatch_alerts(results)
+            _dispatch_alerts(results, json_mode=is_json)
             if not is_json:
                 typer.echo("Tip: run 'driftwatch remediate <resource_id>' to fix a specific resource.\n")
 
-        _check_gate(highest_severity, fail_on.value if fail_on else None)
+        _check_gate(highest_severity, fail_on.value if fail_on else None, has_findings=bool(results))
     except typer.Exit:
         raise
     except Exception as e:
@@ -397,7 +438,10 @@ def remediate(
             typer.secho("\n[DRY RUN] No changes made. Re-run with --apply to remediate.", fg=typer.colors.BLUE)
             return
 
-        process_remediation(matches, auto_approve=yes, profile=profile)
+        try:
+            process_remediation(matches, auto_approve=yes, profile=profile, region=actual_region)
+        except TypeError:
+            process_remediation(matches, auto_approve=yes, profile=profile)
     except typer.Exit:
         raise
     except Exception as e:
