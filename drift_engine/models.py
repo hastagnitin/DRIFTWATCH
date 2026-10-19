@@ -23,7 +23,7 @@ MONITORED_ATTRIBUTES = {
     "aws_s3_bucket": {"bucket", "tags"},
     "aws_db_instance": {"instance_class", "engine", "allocated_storage", "engine_version", "multi_az"},
     "aws_lambda_function": {"runtime", "handler", "memory_size", "timeout", "role"},
-    "aws_iam_role": {"attached_policies", "path"}
+    "aws_iam_role": {"attached_policies", "path", "assume_role_policy", "inline_policies"}
 }
 
 MONITORED_RESOURCES = list(MONITORED_ATTRIBUTES.keys())
@@ -42,6 +42,8 @@ ATTRIBUTE_SEVERITY = {
     },
     "aws_iam_role": {
         "attached_policies": "CRITICAL",
+        "assume_role_policy": "CRITICAL",
+        "inline_policies": "CRITICAL",
         "path": "LOW"
     },
     "aws_db_instance": {
