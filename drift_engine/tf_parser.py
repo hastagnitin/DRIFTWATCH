@@ -1,6 +1,41 @@
 import json
 
-def load_terraform_state(state_path: str, profile: str = None) -> dict:
+class StateResourceDict(dict):
+    """Resource dictionary keyed by (resource_type, resource_id) to prevent collisions.
+
+    F5: Key resources by (resource_type, resource_id) throughout parsing/comparison.
+    Supports backwards-compatible lookups and assignments by string resource_id.
+    """
+    def __getitem__(self, key):
+        if isinstance(key, tuple):
+            return super().__getitem__(key)
+        for (rtype, rid), val in self.items():
+            if rid == key:
+                return val
+        raise KeyError(key)
+
+    def __contains__(self, key):
+        if isinstance(key, tuple):
+            return super().__contains__(key)
+        for (rtype, rid) in self.keys():
+            if rid == key:
+                return True
+        return False
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __setitem__(self, key, value):
+        if isinstance(key, tuple):
+            super().__setitem__(key, value)
+        else:
+            r_type = value.get("type", "unknown") if isinstance(value, dict) else "unknown"
+            super().__setitem__((r_type, key), value)
+
+def load_terraform_state(state_path: str, profile: str = None) -> StateResourceDict:
     if state_path.startswith("s3://"):
         parts = state_path[5:].split("/", 1)
         if len(parts) != 2 or not parts[0] or not parts[1]:
@@ -28,11 +63,10 @@ def load_terraform_state(state_path: str, profile: str = None) -> dict:
         except json.JSONDecodeError as e:
             raise ValueError(f"Terraform state file at '{state_path}' is corrupted or invalid JSON: {e}")
 
-
-    resources = {}
+    resources = StateResourceDict()
 
     for resource in state.get("resources", []):
-        r_type = resource["type"]
+        r_type = resource.get("type", "")
 
         if r_type == "archive_file":
             continue
@@ -44,16 +78,17 @@ def load_terraform_state(state_path: str, profile: str = None) -> dict:
                 role_name = attrs.get("role")
                 policy_arn = attrs.get("policy_arn")
                 if role_name and policy_arn:
-                    if role_name not in resources:
-                        resources[role_name] = {
+                    role_key = ("aws_iam_role", role_name)
+                    if role_key not in resources:
+                        resources[role_key] = {
                             "type": "aws_iam_role",
                             "name": role_name,
                             "attributes": {"id": role_name, "name": role_name, "attached_policies": []}
                         }
-                    if "attached_policies" not in resources[role_name]["attributes"]:
-                        resources[role_name]["attributes"]["attached_policies"] = []
-                    resources[role_name]["attributes"]["attached_policies"].append(policy_arn)
-                    resources[role_name]["attributes"]["attached_policies"].sort()
+                    if "attached_policies" not in resources[role_key]["attributes"]:
+                        resources[role_key]["attributes"]["attached_policies"] = []
+                    resources[role_key]["attributes"]["attached_policies"].append(policy_arn)
+                    resources[role_key]["attributes"]["attached_policies"].sort()
                 continue
 
             resource_id = attrs.get("id")
@@ -73,13 +108,14 @@ def load_terraform_state(state_path: str, profile: str = None) -> dict:
                 name = "Unknown"
 
             if resource_id:
-                if resource_id in resources and r_type == "aws_iam_role":
-                    existing_policies = resources[resource_id]["attributes"].get("attached_policies", [])
+                composite_key = (r_type, resource_id)
+                if composite_key in resources and r_type == "aws_iam_role":
+                    existing_policies = resources[composite_key]["attributes"].get("attached_policies", [])
                     attrs["attached_policies"] = sorted(set(
                         attrs.get("attached_policies", []) + existing_policies
                     ))
 
-                resources[resource_id] = {
+                resources[composite_key] = {
                     "type": r_type,
                     "name": name,
                     "attributes": attrs
