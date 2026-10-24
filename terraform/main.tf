@@ -37,7 +37,7 @@ resource "aws_security_group" "drift_test_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["10.0.0.0/8"]  # Restrict SSH to internal network only
   }
 
   egress {
@@ -105,6 +105,6 @@ resource "aws_security_group" "driftwatch_managed_test" {
         from_port   = 443
         to_port     = 443
         protocol    = "tcp"
-        cidr_blocks = ["0.0.0.0/0"]
+        cidr_blocks = ["10.0.0.0/8"]  # Restrict HTTPS to internal network only
     }
 }
