@@ -29,9 +29,23 @@ spec:
             - "scan"
             - "--region"
             - "ap-south-1"
+            - "--state"
+            - "/state/terraform.tfstate"
             - "--fail-on"
             - "CRITICAL"
             envFrom:
             - secretRef:
                 name: driftwatch-env
+            volumeMounts:
+            - name: terraform-state
+              mountPath: /state
+              readOnly: true
           restartPolicy: OnFailure
+          volumes:
+          - name: terraform-state
+            # Option 1: Use a PVC containing the Terraform state file
+            persistentVolumeClaim:
+              claimName: driftwatch-tfstate
+            # Option 2: Use an S3 state URI instead of a local file:
+            #   Remove the volume/volumeMount above and change --state to:
+            #   - "s3://your-bucket/path/to/terraform.tfstate"
