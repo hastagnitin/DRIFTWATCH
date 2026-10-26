@@ -62,7 +62,6 @@ venv.bak/
 *.tfstate
 *.tfstate.*
 *.tfstate.backup
-.terraform.lock.hcl
 *.tfplan
 *.tfplan.*
 terraform/lambda_function.zip

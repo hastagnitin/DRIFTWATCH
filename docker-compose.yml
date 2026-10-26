@@ -15,7 +15,7 @@ services:
   app:
     build: .
     container_name: driftwatch-app
-    command: ["./run.sh"]
+    command: ["scan", "--region", "ap-south-1", "--state", "terraform/terraform.tfstate"]
     depends_on:
       - db
     stdin_open: true
@@ -23,7 +23,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./terraform:/app/terraform:rw
+      - ./terraform:/home/driftwatch/app/terraform:rw
 
 volumes:
   driftwatch_db_data:
