@@ -37,7 +37,7 @@ You run DriftWatch as a Kubernetes CronJob. Every Monday morning, you get a Slac
 
 ```bash
 # 1. Install
-pip install driftwatch-cli
+python -m pip install driftwatch-cli
 
 # 2. Set your region and state file path
 export AWS_DEFAULT_REGION=ap-south-1
@@ -166,7 +166,7 @@ driftwatch/
 | AWS Credentials | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`, or IAM role, or `--profile` |
 | Terraform State | Local `terraform.tfstate` file (JSON format) |
 | Groq API Key *(optional)* | `GROQ_API_KEY` — enables AI risk summaries |
-| PostgreSQL *(optional)* | For persistent scan history — `pip install "driftwatch-cli[postgres]"` |
+| PostgreSQL *(optional)* | For persistent scan history — `python -m pip install "driftwatch-cli[postgres]"` |
 
 ---
 
@@ -174,17 +174,19 @@ driftwatch/
 
 ```bash
 # Standard install
-pip install driftwatch-cli
+python -m pip install driftwatch-cli
 
 # With PostgreSQL support for persistent audit history
-pip install "driftwatch-cli[postgres]"
+python -m pip install "driftwatch-cli[postgres]"
 ```
+
+On Windows, if `python` is not recognized, use `py -m pip` instead (for example, `py -m pip install driftwatch-cli`).
 
 **From source (for contributors):**
 ```bash
 git clone https://github.com/hastagnitin/driftwatch.git
 cd driftwatch
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 ```
 
 ---
@@ -431,7 +433,7 @@ Tests use [`moto`](https://github.com/getmoto/moto) to mock AWS services — no 
 ## 🤝 Contributing
 
 1. **Fork** the repo and clone locally
-2. **Install dev dependencies**: `pip install -e ".[dev]"`
+2. **Install dev dependencies**: `python -m pip install -e ".[dev]"`
 3. **Create a branch**: `git checkout -b feat/your-feature`
 4. **Write tests** for any new behavior in `tests/`
 5. **Lint**: `ruff check . && ruff format .`
@@ -463,4 +465,3 @@ One or more AWS services failed to respond (e.g., IAM throttling or missing perm
 ## 📄 License
 
 MIT License — see [LICENSE](https://github.com/hastagnitin/driftwatch/blob/main/LICENSE) for details.
-
