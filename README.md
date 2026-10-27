@@ -2,7 +2,7 @@
 
 > **TL;DR** — DriftWatch catches when someone (or something) changed your AWS infrastructure outside of Terraform, tells you how risky it is, and helps you fix it — in one CLI.
 
-[![PyPI version](https://img.shields.io/pypi/v/driftwatch-cli?style=flat-square&color=blue)](https://pypi.org/project/driftwatch-cli/)
+[![PyPI version](https://img.shields.io/pypi/v/driftwatch-cli?style=flat-square&color=blue&cacheSeconds=300)](https://pypi.org/project/driftwatch-cli/)
 [![Downloads](https://img.shields.io/pypi/dm/driftwatch-cli?style=flat-square&color=green)](https://pypi.org/project/driftwatch-cli/)
 [![Python versions](https://img.shields.io/pypi/pyversions/driftwatch-cli?style=flat-square)](https://pypi.org/project/driftwatch-cli/)
 [![License](https://img.shields.io/pypi/l/driftwatch-cli?style=flat-square)](https://github.com/hastagnitin/driftwatch/blob/main/LICENSE)
