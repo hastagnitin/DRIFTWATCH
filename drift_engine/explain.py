@@ -101,9 +101,14 @@ def get_drift_explanation(resource_type: str, resource_id: str, diff_data: dict,
         f"Do NOT generate or guess CLI commands or Terraform scripts."
     )
 
-    preferred_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+    preferred_model = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
     candidate_models = [preferred_model]
-    for fallback in ["llama-3.3-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant"]:
+    for fallback in [
+        "openai/gpt-oss-20b",
+        "openai/gpt-oss-120b",
+        "llama-3.1-8b-instant",
+        "llama-3.3-70b-versatile",
+    ]:
         if fallback not in candidate_models:
             candidate_models.append(fallback)
 
@@ -129,7 +134,7 @@ def get_drift_explanation(resource_type: str, resource_id: str, diff_data: dict,
             "temperature": 0.2
         }
 
-        # F19: Bounded retry with exponential backoff for rate limit (429) / transient 5xx
+       
         max_retries = 2
         for attempt in range(max_retries + 1):
             try:
@@ -158,8 +163,16 @@ def get_drift_explanation(resource_type: str, resource_id: str, diff_data: dict,
                 except Exception:
                     pass
 
-                # If model was retired / not found (404), try next candidate model
-                if status_code == 404 and model_name != candidate_models[-1]:
+                error_lower = err_msg.lower()
+                model_unavailable = (
+                    status_code in (400, 404)
+                    and "model" in error_lower
+                    and any(
+                        phrase in error_lower
+                        for phrase in ("not found", "does not exist", "decommissioned", "not available", "not supported")
+                    )
+                )
+                if model_unavailable and model_name != candidate_models[-1]:
                     break
 
                 last_error = f"AI API Error (Groq): {err_msg}"

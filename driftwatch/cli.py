@@ -9,7 +9,6 @@ from enum import Enum
 from datetime import datetime
 from dotenv import load_dotenv, find_dotenv
 
-# Search CWD and parents first so driftwatch reads .env from where the command was executed
 load_dotenv(find_dotenv(usecwd=True))
 load_dotenv()
 
@@ -294,7 +293,11 @@ def _check_gate(highest_severity_found: str, fail_on: str = None, has_findings: 
 
 @app.command()
 def scan(
-    state: str = typer.Option("terraform/terraform.tfstate", help="Path to Terraform state file."),
+    state: str = typer.Option(
+        "terraform/terraform.tfstate",
+        help="Path or S3 URI to Terraform state file.",
+        envvar="TF_STATE_PATH",
+    ),
     region: str = typer.Option(None, help="Target AWS region."),
     profile: str = typer.Option(None, help="AWS CLI profile name to use."),
     fail_on: SeverityChoice = typer.Option(
@@ -350,7 +353,11 @@ def scan(
 @app.command()
 def explain(
     resource_id: str,
-    state: str = typer.Option("terraform/terraform.tfstate", help="Path to Terraform state file."),
+    state: str = typer.Option(
+        "terraform/terraform.tfstate",
+        help="Path or S3 URI to Terraform state file.",
+        envvar="TF_STATE_PATH",
+    ),
     region: str = typer.Option(None, help="Target AWS region."),
     profile: str = typer.Option(None, help="AWS CLI profile name to use."),
     from_scan: str = typer.Option(None, "--from-scan", help="Path to JSON file from a previous 'driftwatch scan --json'.")
@@ -394,7 +401,11 @@ def explain(
 def remediate(
     resource_id: str = typer.Argument(None, help="Resource ID to remediate (optional if --all is used)."),
     all_resources: bool = typer.Option(False, "--all", "-a", help="Remediate all detected drifted resources."),
-    state: str = typer.Option("terraform/terraform.tfstate", help="Path to Terraform state file."),
+    state: str = typer.Option(
+        "terraform/terraform.tfstate",
+        help="Path or S3 URI to Terraform state file.",
+        envvar="TF_STATE_PATH",
+    ),
     region: str = typer.Option(None, help="Target AWS region."),
     profile: str = typer.Option(None, help="AWS CLI profile name to use."),
     from_scan: str = typer.Option(None, "--from-scan", help="Path to JSON file from a previous 'driftwatch scan --json'."),
